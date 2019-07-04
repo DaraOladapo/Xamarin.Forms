@@ -1,13 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
+using Xamarin.Forms.Controls.Issues;
+using Xamarin.Forms.Internals;
 using Xamarin.Forms.PlatformConfiguration;
+using Xamarin.Forms.PlatformConfiguration.iOSSpecific;
 using Xamarin.Forms.PlatformConfiguration.WindowsSpecific;
 
 namespace Xamarin.Forms.Controls
 {
+
 	public class App : Application
 	{
 		public const string AppName = "XamarinFormsControls";
@@ -21,19 +27,109 @@ namespace Xamarin.Forms.Controls
 		static Dictionary<string, string> s_config;
 		readonly ITestCloudService _testCloudService;
 
+		public const string DefaultMainPageId = "ControlGalleryMainPage";
+
+		public static bool PreloadTestCasesIssuesList { get; set; } = true;
 		public App()
 		{
 			_testCloudService = DependencyService.Get<ITestCloudService>();
-			InitInsights();
 
-			MainPage = new MasterDetailPage
-			{
-				Master = new ContentPage { Title = "Master", BackgroundColor = Color.Red },
-				Detail = CoreGallery.GetMainPage()
-			};
+			SetMainPage(CreateDefaultMainPage());
+
+			//TestMainPageSwitches();
+
+			//SetMainPage(new ImageSourcesGallery());
 		}
 
-		protected override void OnAppLinkRequestReceived(Uri uri)
+		protected override void OnStart()
+		{
+			//TestIssue2393();
+		}
+
+		async Task TestBugzilla44596()
+		{
+			await Task.Delay(50);
+			// verify that there is no gray screen displayed between the blue splash and red MasterDetailPage.
+			SetMainPage(new Bugzilla44596SplashPage(async () =>
+			{
+				var newTabbedPage = new TabbedPage();
+				newTabbedPage.Children.Add(new ContentPage { BackgroundColor = Color.Red, Content = new Label { Text = "Success" } });
+				MainPage = new MasterDetailPage
+				{
+					Master = new ContentPage { Title = "Master", BackgroundColor = Color.Red },
+					Detail = newTabbedPage
+				};
+
+				await Task.Delay(50);
+				SetMainPage(CreateDefaultMainPage());
+			}));
+		}
+
+		async Task TestBugzilla45702()
+		{
+			await Task.Delay(50);
+			// verify that there is no crash when switching MainPage from MDP inside NavPage
+			SetMainPage(new Bugzilla45702());
+		}
+
+		void TestIssue2393()
+		{
+			MainPage = new NavigationPage();
+
+			// Hand off to website for sign in process
+			var view = new WebView { Source = new Uri("http://google.com") };
+			view.Navigated += (s, e) => MainPage.DisplayAlert("Navigated", $"If this popup appears multiple times, this test has failed", "ok"); ;
+
+			MainPage.Navigation.PushAsync(new ContentPage { Content = view, Title = "Issue 2393" });
+			//// Uncomment to verify that there is no gray screen displayed between the blue splash and red MasterDetailPage.
+			//SetMainPage(new Bugzilla44596SplashPage(() =>
+			//{
+			//	var newTabbedPage = new TabbedPage();
+			//	newTabbedPage.Children.Add(new ContentPage { BackgroundColor = Color.Red, Content = new Label { Text = "yay" } });
+			//	MainPage = new MasterDetailPage
+			//	{
+			//		Master = new ContentPage { Title = "Master", BackgroundColor = Color.Red },
+			//		Detail = newTabbedPage
+			//	};
+			//}));
+
+			//// Uncomment to verify that there is no crash when switching MainPage from MDP inside NavPage
+			//SetMainPage(new Bugzilla45702());
+
+			//// Uncomment to verify that there is no crash when rapidly switching pages that contain lots of buttons
+			//SetMainPage(new Issues.Issue2004());
+		}
+
+		async Task TestMainPageSwitches()
+		{
+			await TestBugzilla45702();
+
+			await TestBugzilla44596();
+		}
+
+		public Page CreateDefaultMainPage()
+		{
+			var layout = new StackLayout { BackgroundColor = Color.Red };
+			layout.Children.Add(new Label { Text = "This is master Page" });
+			var master = new ContentPage { Title = "Master", Content = layout, BackgroundColor = Color.SkyBlue, IconImageSource ="menuIcon" };
+			master.On<iOS>().SetUseSafeArea(true);
+			var mdp = new MasterDetailPage
+			{
+				AutomationId = DefaultMainPageId,
+				Master = master,
+				Detail = CoreGallery.GetMainPage()
+			};
+			master.IconImageSource.AutomationId = "btnMDPAutomationID";
+			mdp.SetAutomationPropertiesName("Main page");
+			mdp.SetAutomationPropertiesHelpText("Main page help text");
+			mdp.Master.IconImageSource.SetAutomationPropertiesHelpText("This as MDP icon");
+			mdp.Master.IconImageSource.SetAutomationPropertiesName("MDPICON");
+			return mdp;
+
+            //return new XamStore.StoreShell();
+        }
+
+        protected override void OnAppLinkRequestReceived(Uri uri)
 		{
 			var appDomain = "http://" + AppName.ToLowerInvariant() + "/";
 
@@ -51,8 +147,7 @@ namespace Xamarin.Forms.Controls
 					string page = parts[1].Trim();
 					var pageForms = Activator.CreateInstance(Type.GetType(page));
 
-					var appLinkPageGallery = pageForms as AppLinkPageGallery;
-					if (appLinkPageGallery != null)
+					if (pageForms is AppLinkPageGallery appLinkPageGallery)
 					{
 						appLinkPageGallery.ShowLabel = true;
 						(MainPage as MasterDetailPage)?.Detail.Navigation.PushAsync((pageForms as Page));
@@ -74,20 +169,6 @@ namespace Xamarin.Forms.Controls
 			}
 		}
 
-		public static string InsightsApiKey
-		{
-			get
-			{
-				if (s_insightsKey == null)
-				{
-					string key = Config["InsightsApiKey"];
-					s_insightsKey = string.IsNullOrEmpty(key) ? Insights.DebugModeKey : key;
-				}
-
-				return s_insightsKey;
-			}
-		}
-
 		public static ContentPage MenuPage { get; set; }
 
 		public void SetMainPage(Page rootPage)
@@ -100,18 +181,6 @@ namespace Xamarin.Forms.Controls
 			assemblystring = typeof(App).AssemblyQualifiedName.Split(',')[1].Trim();
 			var assemblyname = new AssemblyName(assemblystring);
 			return Assembly.Load(assemblyname);
-		}
-
-		void InitInsights()
-		{
-			if (Insights.IsInitialized)
-			{
-				Insights.ForceDataTransmission = true;
-				if (_testCloudService != null && _testCloudService.IsOnTestCloud())
-					Insights.Identify(_testCloudService.GetTestCloudDevice(), "Name", _testCloudService.GetTestCloudDeviceName());
-				else
-					Insights.Identify("DemoUser", "Name", "Demo User");
-			}
 		}
 
 		static void LoadConfig()
@@ -132,14 +201,51 @@ namespace Xamarin.Forms.Controls
 
 		static async Task<string> LoadResource(string filename)
 		{
-			string assemblystring;
-			Assembly assembly = GetAssembly(out assemblystring);
+			Assembly assembly = GetAssembly(out string assemblystring);
 
 			Stream stream = assembly.GetManifestResourceStream($"{assemblystring}.{filename}");
 			string text;
 			using (var reader = new StreamReader(stream))
 				text = await reader.ReadToEndAsync();
 			return text;
+		}
+
+		public bool NavigateToTestPage(string test)
+		{
+			try
+			{
+				// Create an instance of the main page
+				var root = CreateDefaultMainPage();
+
+				// Set up a delegate to handle the navigation to the test page
+				EventHandler toTestPage = null;
+
+				toTestPage = async delegate (object sender, EventArgs e)
+				{
+					await Current.MainPage.Navigation.PushModalAsync(TestCases.GetTestCases());
+					TestCases.TestCaseScreen.PageToAction[test]();
+					Current.MainPage.Appearing -= toTestPage;
+				};
+
+				// And set that delegate to run once the main page appears
+				root.Appearing += toTestPage;
+
+				SetMainPage(root);
+
+				return true;
+			}
+			catch (Exception ex)
+			{
+				Log.Warning("UITests", $"Error attempting to navigate directly to {test}: {ex}");
+
+			}
+
+			return false;
+		}
+
+		public void Reset()
+		{
+			SetMainPage(CreateDefaultMainPage());
 		}
 	}
 }

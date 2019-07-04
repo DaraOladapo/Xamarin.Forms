@@ -1,6 +1,7 @@
 ﻿using System;
 using NUnit.Framework;
 using System.Collections.ObjectModel;
+using Xamarin.Forms.Core.UnitTests;
 
 namespace Xamarin.Forms.Xaml.UnitTests
 {
@@ -58,6 +59,13 @@ namespace Xamarin.Forms.Xaml.UnitTests
 		{
 			SeverityColorConverter.count = 0;
 			InvertBoolenConverter.count = 0;
+			Device.PlatformServices = new MockPlatformServices();
+		}
+
+		[TearDown]
+		public void TearDown()
+		{
+			Device.PlatformServices = null;
 		}
 
 		[Test]
@@ -87,6 +95,35 @@ xmlns=""http://xamarin.com/schemas/2014/forms""
 			var label = layout.FindByName<Label> ("label");
 			Assert.AreEqual (Color.Blue, label.BackgroundColor);
 			Assert.AreEqual (1, SeverityColorConverter.count);
+		}
+
+		[Test]
+		public void ConverterIsInvoked_Escaped()
+		{
+			var xaml = @"
+<ContentPage 							
+xmlns=""http://xamarin.com/schemas/2014/forms"" 
+							xmlns:x=""http://schemas.microsoft.com/winfx/2009/xaml""
+							xmlns:local=""clr-namespace:Xamarin.Forms.Xaml.UnitTests;assembly=Xamarin.Forms.Xaml.UnitTests"">
+
+<ContentPage.Resources>
+<ResourceDictionary>
+<local:SeverityColorConverter x:Key=""SeverityColorConverter"" />
+</ResourceDictionary>
+</ContentPage.Resources>
+				<Label Text=""{Binding value, StringFormat='{}{0}'}"" 
+					WidthRequest=""50"" 
+					TextColor=""Black""
+					x:Name=""label""
+					BackgroundColor=""{Binding Severity, Converter={StaticResource SeverityColorConverter}}""
+					XAlign=""Center"" YAlign=""Center""/>
+</ContentPage>";
+
+			var layout = new ContentPage().LoadFromXaml(xaml);
+			layout.BindingContext = new { Value = "Foo", Severity = "Bar" };
+			var label = layout.FindByName<Label>("label");
+			Assert.AreEqual(Color.Blue, label.BackgroundColor);
+			Assert.AreEqual(1, SeverityColorConverter.count);
 		}
 
 		[Test]

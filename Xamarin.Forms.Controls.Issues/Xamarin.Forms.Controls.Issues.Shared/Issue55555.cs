@@ -8,8 +8,11 @@ using Xamarin.UITest;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
+#if UITEST
+	[NUnit.Framework.Category(Core.UITests.UITestCategories.UwpIgnore)]
+#endif
 	[Preserve(AllMembers = true)]
 	[Issue(IssueTracker.None, 55555, "Header problem")]
 	public class Issue55555 : TestContentPage // or TestMasterDetailPage, etc ...

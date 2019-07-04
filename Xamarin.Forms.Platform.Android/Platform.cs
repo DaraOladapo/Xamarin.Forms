@@ -9,6 +9,7 @@ using Android.Content;
 using Android.Content.Res;
 using Android.Graphics;
 using Android.Graphics.Drawables;
+using Android.OS;
 using Android.Support.V4.App;
 using Android.Util;
 using Android.Views;
@@ -16,11 +17,19 @@ using Android.Widget;
 using Xamarin.Forms.Platform.Android.AppCompat;
 using FragmentManager = Android.Support.V4.App.FragmentManager;
 using Xamarin.Forms.Internals;
+using AView = Android.Views.View;
 
 namespace Xamarin.Forms.Platform.Android
 {
-	public class Platform : BindableObject, IPlatform, INavigation, IDisposable, IPlatformLayout
+	public class Platform : BindableObject, INavigation, IDisposable, IPlatformLayout
+#pragma warning disable CS0618
+		, IPlatform
+#pragma warning restore
 	{
+
+		internal static string PackageName { get; private set; }
+		internal static string GetPackageName() => PackageName ?? AppCompat.Platform.PackageName;
+
 		internal const string CloseContextActionsSignalName = "Xamarin.CloseContextActions";
 
 		internal static readonly BindableProperty RendererProperty = BindableProperty.CreateAttached("Renderer", typeof(IVisualElementRenderer), typeof(Platform), default(IVisualElementRenderer),
@@ -31,11 +40,10 @@ namespace Xamarin.Forms.Platform.Android
 					view.IsPlatformEnabled = newvalue != null;
 			});
 
-		internal static readonly BindableProperty PageContextProperty = BindableProperty.CreateAttached("PageContext", typeof(Context), typeof(Platform), null);
-
 		IMasterDetailPageController MasterDetailPageController => CurrentMasterDetailPage as IMasterDetailPageController;
 
 		readonly Context _context;
+		readonly Activity _activity;
 
 		readonly PlatformRenderer _renderer;
 		readonly ToolbarTracker _toolbarTracker = new ToolbarTracker();
@@ -53,13 +61,34 @@ namespace Xamarin.Forms.Platform.Android
 		Page _navigationPageCurrentPage;
 		NavigationModel _navModel = new NavigationModel();
 
-		internal Platform(Context context)
-		{
-			_context = context;
+		readonly bool _embedded;
 
-			_defaultActionBarTitleTextColor = SetDefaultActionBarTitleTextColor();
+		internal Platform(Context context, bool embedded)
+		{
+			_embedded = embedded;
+			_context = context ?? throw new ArgumentNullException(nameof(context), "Somehow we're getting a null context passed in");
+			PackageName = context.PackageName;
+			_activity = context.GetActivity();
+
+			if (!embedded)
+			{
+				_defaultActionBarTitleTextColor = SetDefaultActionBarTitleTextColor();
+			}
 
 			_renderer = new PlatformRenderer(context, this);
+
+			if (embedded)
+			{
+				// Set up handling of DisplayAlert/DisplayActionSheet/UpdateProgressBarVisibility
+				if (_activity == null)
+				{
+					// Can't show dialogs if it's not an activity
+					return;
+				}
+
+				PopupManager.Subscribe(_activity);
+				return;
+			}
 
 			FormsApplicationActivity.BackPressed += HandleBackPressed;
 
@@ -74,10 +103,7 @@ namespace Xamarin.Forms.Platform.Android
 
 		IPageController CurrentPageController => _navModel.CurrentPage as IPageController;
 
-		ActionBar ActionBar
-		{
-			get { return ((Activity)_context).ActionBar; }
-		}
+		ActionBar ActionBar => _activity?.ActionBar;
 
 		MasterDetailPage CurrentMasterDetailPage { get; set; }
 
@@ -109,11 +135,6 @@ namespace Xamarin.Forms.Platform.Android
 					_currentNavigationPage.PropertyChanged += CurrentNavigationPageOnPropertyChanged;
 					RegisterNavPageCurrent(_currentNavigationPage.CurrentPage);
 				}
-
-				UpdateActionBarBackgroundColor();
-				UpdateActionBarTextColor();
-				UpdateActionBarUpImageColor();
-				UpdateActionBarTitle();
 			}
 		}
 
@@ -161,6 +182,11 @@ namespace Xamarin.Forms.Platform.Android
 
 			SetPage(null);
 
+			if (_embedded)
+			{
+				PopupManager.Unsubscribe(_context);
+			}
+
 			FormsApplicationActivity.BackPressed -= HandleBackPressed;
 			_toolbarTracker.CollectionChanged -= ToolbarTrackerOnCollectionChanged;
 			_toolbarTracker.Target = null;
@@ -206,11 +232,11 @@ namespace Xamarin.Forms.Platform.Android
 			{
 				if (animated)
 				{
-					modalRenderer.ViewGroup.Animate().Alpha(0).ScaleX(0.8f).ScaleY(0.8f).SetDuration(250).SetListener(new GenericAnimatorListener
+					modalRenderer.View.Animate().Alpha(0).ScaleX(0.8f).ScaleY(0.8f).SetDuration(250).SetListener(new GenericAnimatorListener
 					{
 						OnEnd = a =>
 						{
-							modalRenderer.ViewGroup.RemoveFromParent();
+							modalRenderer.View.RemoveFromParent();
 							modalRenderer.Dispose();
 							source.TrySetResult(modal);
 							CurrentPageController?.SendAppearing();
@@ -219,7 +245,7 @@ namespace Xamarin.Forms.Platform.Android
 				}
 				else
 				{
-					modalRenderer.ViewGroup.RemoveFromParent();
+					modalRenderer.View.RemoveFromParent();
 					modalRenderer.Dispose();
 					source.TrySetResult(modal);
 					CurrentPageController?.SendAppearing();
@@ -263,7 +289,11 @@ namespace Xamarin.Forms.Platform.Android
 
 			_navModel.PushModal(modal);
 
+#pragma warning disable CS0618 // Type or member is obsolete
+			// The Platform property is no longer necessary, but we have to set it because some third-party
+			// library might still be retrieving it and using it
 			modal.Platform = this;
+#pragma warning restore CS0618 // Type or member is obsolete
 
 			await PresentModal(modal, animated);
 
@@ -281,19 +311,53 @@ namespace Xamarin.Forms.Platform.Android
 			throw new InvalidOperationException("RemovePage is not supported globally on Android, please use a NavigationPage.");
 		}
 
+		public static void ClearRenderer(AView renderedView)
+		{
+			var element = (renderedView as IVisualElementRenderer)?.Element;
+			var view = element as View;
+			if (view != null)
+			{
+				var renderer = GetRenderer(view);
+				if (renderer == renderedView)
+					element.ClearValue(RendererProperty);
+				renderer?.Dispose();
+				renderer = null;
+			}
+			var layout = view as IVisualElementRenderer;
+			layout?.Dispose();
+			layout = null;
+		}
+
+		[Obsolete("CreateRenderer(VisualElement) is obsolete as of version 2.5. Please use CreateRendererWithContext(VisualElement, Context) instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public static IVisualElementRenderer CreateRenderer(VisualElement element)
 		{
-			UpdateGlobalContext(element);
+			// If there's a previewer context set, use that when created 
+			return CreateRenderer(element, GetPreviewerContext(element) ?? Forms.Context);
+		}
 
-			IVisualElementRenderer renderer = Registrar.Registered.GetHandler<IVisualElementRenderer>(element.GetType()) ?? new DefaultRenderer();
+		internal static IVisualElementRenderer CreateRenderer(VisualElement element, Context context)
+		{
+			Profile.FrameBegin(nameof(CreateRenderer));
+			IVisualElementRenderer renderer = Registrar.Registered.GetHandlerForObject<IVisualElementRenderer>(element, context)
+				?? new DefaultRenderer(context);
+			Profile.FramePartition(element.GetType().Name);
 			renderer.SetElement(element);
+			Profile.FrameEnd();
 
 			return renderer;
 		}
 
+		public static IVisualElementRenderer CreateRendererWithContext(VisualElement element, Context context)
+		{
+			// This is an interim method to allow public access to CreateRenderer(element, context), which we 
+			// can't make public yet because it will break the previewer
+			return CreateRenderer(element, context);
+		}
+
 		public static IVisualElementRenderer GetRenderer(VisualElement bindable)
 		{
-			return (IVisualElementRenderer)bindable.GetValue(RendererProperty);
+			return (IVisualElementRenderer)bindable?.GetValue(RendererProperty);
 		}
 
 		public static void SetRenderer(VisualElement bindable, IVisualElementRenderer value)
@@ -303,7 +367,13 @@ namespace Xamarin.Forms.Platform.Android
 
 		public void UpdateActionBarTextColor()
 		{
+			if (_embedded)
+			{
+				return;
+			}
+
 			SetActionBarTextColor();
+			UpdateActionBarUpImageColor();
 		}
 
 		protected override void OnBindingContextChanged()
@@ -313,11 +383,9 @@ namespace Xamarin.Forms.Platform.Android
 			base.OnBindingContextChanged();
 		}
 
-		internal static IVisualElementRenderer CreateRenderer(VisualElement element, FragmentManager fragmentManager)
+		internal static IVisualElementRenderer CreateRenderer(VisualElement element, FragmentManager fragmentManager, Context context)
 		{
-			UpdateGlobalContext(element);
-
-			IVisualElementRenderer renderer = Registrar.Registered.GetHandler<IVisualElementRenderer>(element.GetType()) ?? new DefaultRenderer();
+			IVisualElementRenderer renderer = Registrar.Registered.GetHandlerForObject<IVisualElementRenderer>(element, context) ?? new DefaultRenderer(context);
 
 			var managesFragments = renderer as IManageFragments;
 			managesFragments?.SetFragmentManager(fragmentManager);
@@ -327,11 +395,6 @@ namespace Xamarin.Forms.Platform.Android
 			return renderer;
 		}
 
-		internal static Context GetPageContext(BindableObject bindable)
-		{
-			return (Context)bindable.GetValue(PageContextProperty);
-		}
-
 		internal ViewGroup GetViewGroup()
 		{
 			return _renderer;
@@ -339,6 +402,11 @@ namespace Xamarin.Forms.Platform.Android
 
 		internal void PrepareMenu(IMenu menu)
 		{
+			if (_embedded)
+			{
+				return;
+			}
+
 			foreach (ToolbarItem item in _toolbarTracker.ToolbarItems)
 				item.PropertyChanged -= HandleToolbarItemPropertyChanged;
 			menu.Clear();
@@ -355,19 +423,20 @@ namespace Xamarin.Forms.Platform.Android
 					IMenuItem menuItem = menu.Add(item.Text);
 					menuItem.SetEnabled(controller.IsEnabled);
 					menuItem.SetOnMenuItemClickListener(new GenericMenuClickListener(controller.Activate));
+					menuItem.SetTitleOrContentDescription(item);
 				}
 				else
 				{
 					IMenuItem menuItem = menu.Add(item.Text);
-					if (!string.IsNullOrEmpty(item.Icon))
+					_ = _context.ApplyDrawableAsync(item, MenuItem.IconImageSourceProperty, iconDrawable =>
 					{
-						Drawable iconBitmap = _context.Resources.GetDrawable(item.Icon);
-						if (iconBitmap != null)
-							menuItem.SetIcon(iconBitmap);
-					}
+						if (iconDrawable != null)
+							menuItem.SetIcon(iconDrawable);
+					});
 					menuItem.SetEnabled(controller.IsEnabled);
 					menuItem.SetShowAsAction(ShowAsAction.Always);
 					menuItem.SetOnMenuItemClickListener(new GenericMenuClickListener(controller.Activate));
+					menuItem.SetTitleOrContentDescription(item);
 				}
 			}
 		}
@@ -392,13 +461,20 @@ namespace Xamarin.Forms.Platform.Android
 
 		internal void SetPage(Page newRoot)
 		{
+			if (Page == newRoot)
+			{
+				return;
+			}
+
 			var layout = false;
+			List<IVisualElementRenderer> toDispose = null;
+
 			if (Page != null)
 			{
 				_renderer.RemoveAllViews();
 
-				foreach (IVisualElementRenderer rootRenderer in _navModel.Roots.Select(GetRenderer))
-					rootRenderer.Dispose();
+				toDispose = _navModel.Roots.Select(Android.Platform.GetRenderer).ToList();
+
 				_navModel = new NavigationModel();
 
 				layout = true;
@@ -410,7 +486,13 @@ namespace Xamarin.Forms.Platform.Android
 			_navModel.Push(newRoot, null);
 
 			Page = newRoot;
+
+#pragma warning disable CS0618 // Type or member is obsolete
+			// The Platform property is no longer necessary, but we have to set it because some third-party
+			// library might still be retrieving it and using it
 			Page.Platform = this;
+#pragma warning restore CS0618 // Type or member is obsolete
+
 			AddChild(Page, layout);
 
 			Application.Current.NavigationProxy.Inner = this;
@@ -418,15 +500,25 @@ namespace Xamarin.Forms.Platform.Android
 			_toolbarTracker.Target = newRoot;
 
 			UpdateActionBar();
-		}
 
-		internal static void SetPageContext(BindableObject bindable, Context context)
-		{
-			bindable.SetValue(PageContextProperty, context);
+			if (toDispose?.Count > 0)
+			{
+				// Queue up disposal of the previous renderers after the current layout updates have finished
+				new Handler(Looper.MainLooper).Post(() =>
+				{
+					foreach (IVisualElementRenderer rootRenderer in toDispose)
+					{
+						rootRenderer.Dispose();
+					}
+				});
+			}
 		}
 
 		internal void UpdateActionBar()
 		{
+			if (ActionBar == null || _embedded) //Fullscreen theme doesn't have action bar
+				return;
+
 			List<Page> relevantAncestors = AncestorPagesOfPage(_navModel.CurrentPage);
 
 			IEnumerable<NavigationPage> navPages = relevantAncestors.OfType<NavigationPage>();
@@ -448,19 +540,24 @@ namespace Xamarin.Forms.Platform.Android
 				throw new InvalidOperationException("NavigationPage must have a root Page before being used. Either call PushAsync with a valid Page, or pass a Page to the constructor before usage.");
 			}
 
-			UpdateActionBarTitle();
-
-			if (ShouldShowActionBarTitleArea() || tabbedPage != null)
+			if (ShouldShowActionBarTitleArea() || CurrentTabbedPage != null)
 				ShowActionBar();
 			else
 				HideActionBar();
+
 			UpdateMasterDetailToggle();
 		}
 
 		internal void UpdateActionBarBackgroundColor()
 		{
-			if (!((Activity)_context).ActionBar.IsShowing)
+			if (ActionBar == null)
+			{
 				return;
+			}
+
+			if (!ShouldShowActionBarTitleArea())
+				return;
+
 			Color colorToUse = Color.Default;
 			if (CurrentNavigationPage != null)
 			{
@@ -472,7 +569,7 @@ namespace Xamarin.Forms.Platform.Android
 					colorToUse = CurrentNavigationPage.BarBackgroundColor;
 			}
 			using (Drawable drawable = colorToUse == Color.Default ? GetActionBarBackgroundDrawable() : new ColorDrawable(colorToUse.ToAndroid()))
-				((Activity)_context).ActionBar.SetBackgroundDrawable(drawable);
+				ActionBar.SetBackgroundDrawable(drawable);
 		}
 
 		internal void UpdateMasterDetailToggle(bool update = false)
@@ -485,7 +582,7 @@ namespace Xamarin.Forms.Platform.Android
 				ClearMasterDetailToggle();
 				return;
 			}
-			if (!CurrentMasterDetailPage.ShouldShowToolbarButton() || string.IsNullOrEmpty(CurrentMasterDetailPage.Master.Icon) ||
+			if (!CurrentMasterDetailPage.ShouldShowToolbarButton() || CurrentMasterDetailPage.Master.IconImageSource.IsEmpty ||
 				(MasterDetailPageController.ShouldShowSplitMode && CurrentMasterDetailPage.IsPresented))
 			{
 				//clear out existing icon;
@@ -510,33 +607,31 @@ namespace Xamarin.Forms.Platform.Android
 			MasterDetailPageToggle.SyncState();
 		}
 
-		internal void UpdateNavigationTitleBar()
-		{
-			UpdateActionBarTitle();
-			UpdateActionBar();
-			UpdateActionBarUpImageColor();
-		}
-
 		void AddChild(VisualElement view, bool layout = false)
 		{
 			if (GetRenderer(view) != null)
 				return;
 
-			SetPageContext(view, _context);
-			IVisualElementRenderer renderView = CreateRenderer(view);
+			IVisualElementRenderer renderView = CreateRenderer(view, _context);
 			SetRenderer(view, renderView);
 
 			if (layout)
 				view.Layout(new Rectangle(0, 0, _context.FromPixels(_renderer.Width), _context.FromPixels(_renderer.Height)));
 
-			_renderer.AddView(renderView.ViewGroup);
+			_renderer.AddView(renderView.View);
 		}
 
 #pragma warning disable 618 // This may need to be updated to work with TabLayout/AppCompat
 		ActionBar.Tab AddTab(Page page, int index)
 #pragma warning restore 618
 		{
-			ActionBar actionBar = ((Activity)_context).ActionBar;
+			ActionBar actionBar = ActionBar;
+
+			if (actionBar == null)
+			{
+				return null;
+			}
+
 			TabbedPage currentTabs = CurrentTabbedPage;
 
 			var atab = actionBar.NewTab();
@@ -588,12 +683,12 @@ namespace Xamarin.Forms.Platform.Android
 
 		void CurrentNavigationPageOnPopped(object sender, NavigationEventArgs eventArg)
 		{
-			UpdateNavigationTitleBar();
+			UpdateActionBar();
 		}
 
 		void CurrentNavigationPageOnPoppedToRoot(object sender, EventArgs eventArgs)
 		{
-			UpdateNavigationTitleBar();
+			UpdateActionBar();
 		}
 
 		void CurrentNavigationPageOnPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -605,17 +700,14 @@ namespace Xamarin.Forms.Platform.Android
 			else if (e.PropertyName == NavigationPage.BarBackgroundColorProperty.PropertyName)
 				UpdateActionBarBackgroundColor();
 			else if (e.PropertyName == NavigationPage.BarTextColorProperty.PropertyName)
-			{
 				UpdateActionBarTextColor();
-				UpdateActionBarUpImageColor();
-			}
 			else if (e.PropertyName == NavigationPage.CurrentPageProperty.PropertyName)
 				RegisterNavPageCurrent(CurrentNavigationPage.CurrentPage);
 		}
 
 		void CurrentNavigationPageOnPushed(object sender, NavigationEventArgs eventArg)
 		{
-			UpdateNavigationTitleBar();
+			UpdateActionBar();
 		}
 
 		void CurrentTabbedPageChildrenChanged(object sender, NotifyCollectionChangedEventArgs e)
@@ -651,24 +743,27 @@ namespace Xamarin.Forms.Platform.Android
 
 			NavAnimationInProgress = true;
 
+			SelectTab();
+
+			NavAnimationInProgress = false;
+		}
+
+		void SelectTab()
+		{
 			Page page = _currentTabbedPage.CurrentPage;
 			if (page == null)
 			{
 				ActionBar.SelectTab(null);
-				NavAnimationInProgress = false;
 				return;
 			}
 
 			int index = TabbedPage.GetIndex(page);
 			if (ActionBar.SelectedNavigationIndex == index || index >= ActionBar.NavigationItemCount)
 			{
-				NavAnimationInProgress = false;
 				return;
 			}
 
 			ActionBar.SelectTab(ActionBar.GetTabAt(index));
-
-			NavAnimationInProgress = false;
 		}
 
 		Drawable GetActionBarBackgroundDrawable()
@@ -688,17 +783,31 @@ namespace Xamarin.Forms.Platform.Android
 
 		void GetNewMasterDetailToggle()
 		{
-			int icon = ResourceManager.GetDrawableByName(CurrentMasterDetailPage.Master.Icon);
 			var drawer = GetRenderer(CurrentMasterDetailPage) as MasterDetailRenderer;
 			if (drawer == null)
 				return;
 
-#pragma warning disable 618 // Eventually we will need to determine how to handle the v7 ActionBarDrawerToggle for AppCompat
-			MasterDetailPageToggle = new ActionBarDrawerToggle(_context as Activity, drawer, icon, 0, 0);
-#pragma warning restore 618
+			if (_activity == null)
+			{
+				return;
+			}
 
+			// TODO: this must be changed to support the other image source types
+			var fileImageSource = CurrentMasterDetailPage.Master.IconImageSource as FileImageSource;
+			if (fileImageSource == null)
+					throw new InvalidOperationException("Icon property must be a FileImageSource on Master page");
+
+			int icon = ResourceManager.GetDrawableByName(fileImageSource);
+
+			FastRenderers.AutomationPropertiesProvider.GetDrawerAccessibilityResources(_activity, CurrentMasterDetailPage, out int resourceIdOpen, out int resourceIdClose);
+#pragma warning disable 618 // Eventually we will need to determine how to handle the v7 ActionBarDrawerToggle for AppCompat
+			MasterDetailPageToggle = new ActionBarDrawerToggle(_activity, drawer, icon,
+			                                                   resourceIdOpen == 0 ? global::Android.Resource.String.Ok : resourceIdOpen,
+													  		   resourceIdClose == 0 ? global::Android.Resource.String.Ok : resourceIdClose);
+#pragma warning restore 618
 			MasterDetailPageToggle.SyncState();
 		}
+
 
 		bool HandleBackPressed(object sender, EventArgs e)
 		{
@@ -713,12 +822,17 @@ namespace Xamarin.Forms.Platform.Android
 
 		void HandleToolbarItemPropertyChanged(object sender, PropertyChangedEventArgs e)
 		{
+			if (_activity == null)
+			{
+				return;
+			}
+
 			if (e.PropertyName == MenuItem.IsEnabledProperty.PropertyName)
-				(_context as Activity).InvalidateOptionsMenu();
+				_activity.InvalidateOptionsMenu();
 			else if (e.PropertyName == MenuItem.TextProperty.PropertyName)
-				(_context as Activity).InvalidateOptionsMenu();
-			else if (e.PropertyName == MenuItem.IconProperty.PropertyName)
-				(_context as Activity).InvalidateOptionsMenu();
+				_activity.InvalidateOptionsMenu();
+			else if (e.PropertyName == MenuItem.IconImageSourceProperty.PropertyName)
+				_activity.InvalidateOptionsMenu();
 		}
 
 		void HideActionBar()
@@ -740,10 +854,10 @@ namespace Xamarin.Forms.Platform.Android
 		{
 			if (args.PropertyName == Page.TitleProperty.PropertyName)
 			{
-				ActionBar actionBar = ((Activity)_context).ActionBar;
+				ActionBar actionBar = ActionBar;
 				TabbedPage currentTabs = CurrentTabbedPage;
 
-				if (currentTabs == null || actionBar.TabCount == 0)
+				if (actionBar == null || currentTabs == null || actionBar.TabCount == 0)
 					return;
 
 				var page = sender as Page;
@@ -757,44 +871,41 @@ namespace Xamarin.Forms.Platform.Android
 			IVisualElementRenderer modalRenderer = GetRenderer(modal);
 			if (modalRenderer == null)
 			{
-				SetPageContext(modal, _context);
-				modalRenderer = CreateRenderer(modal);
+				modalRenderer = CreateRenderer(modal, _context);
 				SetRenderer(modal, modalRenderer);
 
-				if (modal.BackgroundColor == Color.Default && modal.BackgroundImage == null)
-					modalRenderer.ViewGroup.SetWindowBackground();
+				if (modal.BackgroundColor == Color.Default && modal.BackgroundImageSource == null)
+					modalRenderer.View.SetWindowBackground();
 			}
 			modalRenderer.Element.Layout(new Rectangle(0, 0, _context.FromPixels(_renderer.Width), _context.FromPixels(_renderer.Height)));
-			_renderer.AddView(modalRenderer.ViewGroup);
+			_renderer.AddView(modalRenderer.View);
 
 			var source = new TaskCompletionSource<bool>();
+
 			NavAnimationInProgress = true;
 			if (animated)
 			{
-				modalRenderer.ViewGroup.Alpha = 0;
-				modalRenderer.ViewGroup.ScaleX = 0.8f;
-				modalRenderer.ViewGroup.ScaleY = 0.8f;
-				modalRenderer.ViewGroup.Animate().Alpha(1).ScaleX(1).ScaleY(1).SetDuration(250).SetListener(new GenericAnimatorListener
+				modalRenderer.View.Alpha = 0;
+				modalRenderer.View.ScaleX = 0.8f;
+				modalRenderer.View.ScaleY = 0.8f;
+				modalRenderer.View.Animate().Alpha(1).ScaleX(1).ScaleY(1).SetDuration(250).SetListener(new GenericAnimatorListener
 				{
 					OnEnd = a =>
 					{
 						source.TrySetResult(false);
-						NavAnimationInProgress = false;
 					},
 					OnCancel = a =>
 					{
 						source.TrySetResult(true);
-						NavAnimationInProgress = false;
 					}
 				});
 			}
 			else
 			{
-				NavAnimationInProgress = false;
 				source.TrySetResult(true);
 			}
 
-			return source.Task;
+			return source.Task.ContinueWith(task => NavAnimationInProgress = false);
 		}
 
 		void RegisterNavPageCurrent(Page page)
@@ -810,15 +921,13 @@ namespace Xamarin.Forms.Platform.Android
 
 		void ReloadToolbarItems()
 		{
-			var activity = (Activity)_context;
-			activity.InvalidateOptionsMenu();
+			_activity?.InvalidateOptionsMenu();
 		}
 
 		void RemoveTab(Page page, int index)
 		{
-			ActionBar actionBar = ((Activity)_context).ActionBar;
 			page.PropertyChanged -= PagePropertyChanged;
-			actionBar.RemoveTabAt(index);
+			ActionBar?.RemoveTabAt(index);
 		}
 
 		void Reset()
@@ -842,9 +951,33 @@ namespace Xamarin.Forms.Platform.Android
 			Color navigationBarTextColor = CurrentNavigationPage == null ? Color.Default : CurrentNavigationPage.BarTextColor;
 			TextView actionBarTitleTextView = null;
 
-			int actionBarTitleId = _context.Resources.GetIdentifier("action_bar_title", "id", "android");
-			if (actionBarTitleId > 0)
-				actionBarTitleTextView = ((Activity)_context).FindViewById<TextView>(actionBarTitleId);
+			if (Forms.IsLollipopOrNewer && _activity != null)
+			{
+				int actionbarId = _activity.Resources.GetIdentifier("action_bar", "id", "android");
+				if (actionbarId > 0)
+				{
+					var toolbar = _activity.FindViewById(actionbarId) as ViewGroup;
+					if (toolbar != null)
+					{
+						for (int i = 0; i < toolbar.ChildCount; i++)
+						{
+							var textView = toolbar.GetChildAt(i) as TextView;
+							if (textView != null)
+							{
+								actionBarTitleTextView = textView;
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			if (actionBarTitleTextView == null && _activity != null)
+			{
+				int actionBarTitleId = _activity.Resources.GetIdentifier("action_bar_title", "id", "android");
+				if (actionBarTitleId > 0)
+					actionBarTitleTextView = _activity.FindViewById<TextView>(actionBarTitleId);
+			}
 
 			if (actionBarTitleTextView != null && navigationBarTextColor != Color.Default)
 				actionBarTitleTextView.SetTextColor(navigationBarTextColor.ToAndroid());
@@ -856,11 +989,16 @@ namespace Xamarin.Forms.Platform.Android
 		{
 			var defaultTitleTextColor = new Color();
 
+			if (_activity == null)
+			{
+				return defaultTitleTextColor;
+			}
+
 			TextView actionBarTitleTextView = null;
 
-			int actionBarTitleId = _context.Resources.GetIdentifier("action_bar_title", "id", "android");
+			int actionBarTitleId = _activity.Resources.GetIdentifier("action_bar_title", "id", "android");
 			if (actionBarTitleId > 0)
-				actionBarTitleTextView = ((Activity)_context).FindViewById<TextView>(actionBarTitleId);
+				actionBarTitleTextView = _activity.FindViewById<TextView>(actionBarTitleId);
 
 			if (actionBarTitleTextView != null)
 			{
@@ -874,12 +1012,20 @@ namespace Xamarin.Forms.Platform.Android
 
 		bool ShouldShowActionBarTitleArea()
 		{
-			if (Forms.TitleBarVisibility == AndroidTitleBarVisibility.Never)
+			if (_activity == null)
+				return false;
+
+			if (_activity.Window.Attributes.Flags.HasFlag(WindowManagerFlags.Fullscreen))
 				return false;
 
 			bool hasMasterDetailPage = CurrentMasterDetailPage != null;
 			bool navigated = CurrentNavigationPage != null && ((INavigationPageController)CurrentNavigationPage).StackDepth > 1;
 			bool navigationPageHasNavigationBar = CurrentNavigationPage != null && NavigationPage.GetHasNavigationBar(CurrentNavigationPage.CurrentPage);
+			//if we have MDP and Navigation , we let navigation choose
+			if (CurrentNavigationPage != null && hasMasterDetailPage)
+			{
+				return NavigationPage.GetHasNavigationBar(CurrentNavigationPage.CurrentPage);
+			}
 			return navigationPageHasNavigationBar || (hasMasterDetailPage && !navigated);
 		}
 
@@ -893,10 +1039,10 @@ namespace Xamarin.Forms.Platform.Android
 		void ShowActionBar()
 		{
 			ReloadToolbarItems();
-			UpdateActionBarHomeAsUp(ActionBar);
-			ActionBar.Show();
+			UpdateActionBarTitle();
 			UpdateActionBarBackgroundColor();
 			UpdateActionBarTextColor();
+			ActionBar.Show();
 		}
 
 		void ToolbarTrackerOnCollectionChanged(object sender, EventArgs eventArgs)
@@ -929,10 +1075,10 @@ namespace Xamarin.Forms.Platform.Android
 			else if (CurrentTabbedPage != null)
 				view = CurrentTabbedPage.CurrentPage;
 
-			if (view == null)
+			if (view == null || _activity == null)
 				return;
 
-			ActionBar actionBar = ((Activity)_context).ActionBar;
+			ActionBar actionBar = _activity.ActionBar;
 
 			var useLogo = false;
 			var showHome = false;
@@ -941,19 +1087,15 @@ namespace Xamarin.Forms.Platform.Android
 			if (ShouldShowActionBarTitleArea())
 			{
 				actionBar.Title = view.Title;
-				FileImageSource titleIcon = NavigationPage.GetTitleIcon(view);
-				if (!string.IsNullOrWhiteSpace(titleIcon))
+				_ = _context.ApplyDrawableAsync(view, NavigationPage.TitleIconImageSourceProperty, icon =>
 				{
-					actionBar.SetLogo(_context.Resources.GetDrawable(titleIcon));
-					useLogo = true;
-					showHome = true;
-					showTitle = true;
-				}
-				else
-				{
-					showHome = true;
-					showTitle = true;
-				}
+					if (icon != null)
+						actionBar.SetLogo(icon);
+				});
+				var titleIcon = NavigationPage.GetTitleIconImageSource(view);
+				useLogo = titleIcon != null && !titleIcon.IsEmpty;
+				showHome = true;
+				showTitle = true;
 			}
 
 			ActionBarDisplayOptions options = 0;
@@ -970,12 +1112,17 @@ namespace Xamarin.Forms.Platform.Android
 
 		void UpdateActionBarUpImageColor()
 		{
+			if (_activity == null)
+			{
+				return;
+			}
+
 			Color navigationBarTextColor = CurrentNavigationPage == null ? Color.Default : CurrentNavigationPage.BarTextColor;
 			ImageView actionBarUpImageView = null;
 
-			int actionBarUpId = _context.Resources.GetIdentifier("up", "id", "android");
+			int actionBarUpId = _activity.Resources.GetIdentifier("up", "id", "android");
 			if (actionBarUpId > 0)
-				actionBarUpImageView = ((Activity)_context).FindViewById<ImageView>(actionBarUpId);
+				actionBarUpImageView = _activity.FindViewById<ImageView>(actionBarUpId);
 
 			if (actionBarUpImageView != null && navigationBarTextColor != Color.Default)
 			{
@@ -988,23 +1135,160 @@ namespace Xamarin.Forms.Platform.Android
 				actionBarUpImageView.SetColorFilter(null);
 		}
 
-		static void UpdateGlobalContext(VisualElement view)
+		internal static int GenerateViewId()
 		{
-			Element parent = view;
-			while (!Application.IsApplicationOrNull(parent.RealParent))
-				parent = parent.RealParent;
+			// getting unique Id's is an art, and I consider myself the Jackson Pollock of the field
+			if ((int)Build.VERSION.SdkInt >= 17)
+				return global::Android.Views.View.GenerateViewId();
 
-			var rootPage = parent as Page;
-			if (rootPage != null)
-			{
-				Context context = GetPageContext(rootPage);
-				if (context != null)
-					Forms.Context = context;
-			}
+			// Numbers higher than this range reserved for xml
+			// If we roll over, it can be exceptionally problematic for the user if they are still retaining things, android's internal implementation is
+			// basically identical to this except they do a lot of locking we don't have to because we know we only do this
+			// from the UI thread
+			if (s_id >= 0x00ffffff)
+				s_id = 0x00000400;
+			return s_id++;
 		}
 
-		internal class DefaultRenderer : VisualElementRenderer<View>
+		static int s_id = 0x00000400;
+
+		#region Previewer Stuff
+
+		internal static readonly BindableProperty PageContextProperty =
+			BindableProperty.CreateAttached("PageContext", typeof(Context), typeof(Platform), null);
+
+		internal Platform(Context context) : this(context, false)
 		{
+			// we have this overload instead of using a default value for 
+			// the 'embedded' bool parameter so the previewer can find it via reflection
+		}
+
+		internal static void SetPageContext(BindableObject bindable, Context context)
+		{
+			// Set a context for this page and its child controls
+			bindable.SetValue(PageContextProperty, context);
+		}
+
+		static Context GetPreviewerContext(Element element)
+		{
+			// Walk up the tree and find the Page this element is hosted in
+			Element parent = element;
+			while (!Application.IsApplicationOrNull(parent.RealParent))
+			{
+				parent = parent.RealParent;
+			}
+
+			// If a page is found, return the PageContext set by the previewer for that page (if any)
+			return (parent as Page)?.GetValue(PageContextProperty) as Context;
+		}
+
+		#endregion
+
+		#region Obsolete 
+
+		SizeRequest IPlatform.GetNativeSize(VisualElement view, double widthConstraint, double heightConstraint)
+		{
+			return GetNativeSize(view, widthConstraint, heightConstraint);
+		}
+
+		#endregion
+
+		internal class DefaultRenderer : VisualElementRenderer<View>, ILayoutChanges
+		{
+			public bool NotReallyHandled { get; private set; }
+			IOnTouchListener _touchListener;
+
+			[Obsolete("This constructor is obsolete as of version 2.5. Please use DefaultRenderer(Context) instead.")]
+			[EditorBrowsable(EditorBrowsableState.Never)]
+			public DefaultRenderer()
+			{
+			}
+
+			readonly MotionEventHelper _motionEventHelper = new MotionEventHelper();
+
+			public DefaultRenderer(Context context) : base(context)
+			{
+				ChildrenDrawingOrderEnabled = true;
+			}
+
+			internal void NotifyFakeHandling()
+			{
+				NotReallyHandled = true;
+			}
+
+			public override bool OnTouchEvent(MotionEvent e)
+			{
+				if (base.OnTouchEvent(e))
+					return true;
+
+				return _motionEventHelper.HandleMotionEvent(Parent, e);
+			}
+
+			protected override void OnElementChanged(ElementChangedEventArgs<View> e)
+			{
+				base.OnElementChanged(e);
+
+				_motionEventHelper.UpdateElement(e.NewElement);
+			}
+
+			public override bool DispatchTouchEvent(MotionEvent e)
+			{
+				#region Excessive explanation
+				// Normally dispatchTouchEvent feeds the touch events to its children one at a time, top child first,
+				// (and only to the children in the hit-test area of the event) stopping as soon as one of them has handled
+				// the event. 
+
+				// But to be consistent across the platforms, we don't want this behavior; if an element is not input transparent
+				// we don't want an event to "pass through it" and be handled by an element "behind/under" it. We just want the processing
+				// to end after the first non-transparent child, regardless of whether the event has been handled.
+
+				// This is only an issue for a couple of controls; the interactive controls (switch, button, slider, etc) already "handle" their touches 
+				// and the events don't propagate to other child controls. But for image, label, and box that doesn't happen. We can't have those controls 
+				// lie about their events being handled because then the events won't propagate to *parent* controls (e.g., a frame with a label in it would
+				// never get a tap gesture from the label). In other words, we *want* parent propagation, but *do not want* sibling propagation. So we need to short-circuit 
+				// base.DispatchTouchEvent here, but still return "false".
+
+				// Duplicating the logic of ViewGroup.dispatchTouchEvent and modifying it slightly for our purposes is a non-starter; the method is too
+				// complex and does a lot of micro-optimization. Instead, we provide a signalling mechanism for the controls which don't already "handle" touch
+				// events to tell us that they will be lying about handling their event; they then return "true" to short-circuit base.DispatchTouchEvent.
+
+				// The container gets this message and after it gets the "handled" result from dispatchTouchEvent, 
+				// it then knows to ignore that result and return false/unhandled. This allows the event to propagate up the tree.
+				#endregion
+
+				NotReallyHandled = false;
+
+				var result = base.DispatchTouchEvent(e);
+
+				if (result && NotReallyHandled)
+				{
+					// If the child control returned true from its touch event handler but signalled that it was a fake "true", then we
+					// don't consider the event truly "handled" yet. 
+					// Since a child control short-circuited the normal dispatchTouchEvent stuff, this layout never got the chance for
+					// IOnTouchListener.OnTouch and the OnTouchEvent override to try handling the touches; we'll do that now
+					// Any associated Touch Listeners are called from DispatchTouchEvents if all children of this view return false
+					// So here we are simulating both calls that would have typically been called from inside DispatchTouchEvent
+					// but were not called due to the fake "true"
+					result = _touchListener?.OnTouch(this, e) ?? false;
+					return result || OnTouchEvent(e);
+				}
+
+				return result;
+			}
+
+			public override void SetOnTouchListener(IOnTouchListener l)
+			{
+				_touchListener = l;
+				base.SetOnTouchListener(l);
+			}
+
+			protected override void Dispose(bool disposing)
+			{
+				if (disposing)
+					_touchListener = null;
+
+				base.Dispose(disposing);
+			}
 		}
 
 		#region IPlatformEngine implementation
@@ -1020,35 +1304,47 @@ namespace Xamarin.Forms.Platform.Android
 			}
 
 			foreach (IVisualElementRenderer view in _navModel.Roots.Select(GetRenderer))
-				view.UpdateLayout();
+				view?.UpdateLayout();
 		}
 
-		SizeRequest IPlatform.GetNativeSize(VisualElement view, double widthConstraint, double heightConstraint)
+		public static SizeRequest GetNativeSize(VisualElement view, double widthConstraint, double heightConstraint)
 		{
-			Performance.Start();
+			Performance.Start(out string reference);
 
 			// FIXME: potential crash
-			IVisualElementRenderer viewRenderer = GetRenderer(view);
+			IVisualElementRenderer visualElementRenderer = GetRenderer(view);
+
+			var context = visualElementRenderer.View.Context;
 
 			// negative numbers have special meanings to android they don't to us
-			widthConstraint = widthConstraint <= -1 ? double.PositiveInfinity : _context.ToPixels(widthConstraint);
-			heightConstraint = heightConstraint <= -1 ? double.PositiveInfinity : _context.ToPixels(heightConstraint);
+			widthConstraint = widthConstraint <= -1 ? double.PositiveInfinity : context.ToPixels(widthConstraint);
+			heightConstraint = heightConstraint <= -1 ? double.PositiveInfinity : context.ToPixels(heightConstraint);
 
-			int width = !double.IsPositiveInfinity(widthConstraint)
+			bool widthConstrained = !double.IsPositiveInfinity(widthConstraint);
+			bool heightConstrained = !double.IsPositiveInfinity(heightConstraint);
+
+			int widthMeasureSpec = widthConstrained
 							? MeasureSpecFactory.MakeMeasureSpec((int)widthConstraint, MeasureSpecMode.AtMost)
 							: MeasureSpecFactory.MakeMeasureSpec(0, MeasureSpecMode.Unspecified);
 
-			int height = !double.IsPositiveInfinity(heightConstraint)
+			int heightMeasureSpec = heightConstrained
 							 ? MeasureSpecFactory.MakeMeasureSpec((int)heightConstraint, MeasureSpecMode.AtMost)
 							 : MeasureSpecFactory.MakeMeasureSpec(0, MeasureSpecMode.Unspecified);
 
-			SizeRequest rawResult = viewRenderer.GetDesiredSize(width, height);
+			SizeRequest rawResult = visualElementRenderer.GetDesiredSize(widthMeasureSpec, heightMeasureSpec);
 			if (rawResult.Minimum == Size.Zero)
 				rawResult.Minimum = rawResult.Request;
-			var result = new SizeRequest(new Size(_context.FromPixels(rawResult.Request.Width), _context.FromPixels(rawResult.Request.Height)),
-				new Size(_context.FromPixels(rawResult.Minimum.Width), _context.FromPixels(rawResult.Minimum.Height)));
+			var result = new SizeRequest(new Size(context.FromPixels(rawResult.Request.Width), context.FromPixels(rawResult.Request.Height)),
+				new Size(context.FromPixels(rawResult.Minimum.Width), context.FromPixels(rawResult.Minimum.Height)));
 
-			Performance.Stop();
+			if ((widthConstrained && result.Request.Width < widthConstraint)
+				|| (heightConstrained && result.Request.Height < heightConstraint))
+			{
+				// Do a final exact measurement in case the native control needs to fill the container
+				(visualElementRenderer as IViewRenderer)?.MeasureExactly();
+			}
+
+			Performance.Stop(reference);
 			return result;
 		}
 

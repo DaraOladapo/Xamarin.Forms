@@ -1,6 +1,7 @@
 using System;
 
 using NUnit.Framework;
+using Xamarin.Forms.Internals;
 
 namespace Xamarin.Forms.Core.UnitTests
 {
@@ -213,7 +214,6 @@ namespace Xamarin.Forms.Core.UnitTests
 				Master = new ContentPage { Content = new View (), IsPlatformEnabled = true, Title = "Foo" },
 				Detail = new ContentPage { Content = new View (), IsPlatformEnabled = true },
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform ()
 			};
 
 			((IMasterDetailPageController)page).MasterBounds = new Rectangle (0, 0, 100, 200);
@@ -234,7 +234,6 @@ namespace Xamarin.Forms.Core.UnitTests
 			var page = new MasterDetailPage {
 				Master = new ContentPage { Content = new View (), IsPlatformEnabled = true, Title = "Foo" },
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform ()
 			};
 
 			Assert.Throws<InvalidOperationException> (() => page.Layout (new Rectangle (0, 0, 200, 200)));
@@ -246,7 +245,6 @@ namespace Xamarin.Forms.Core.UnitTests
 			var page = new MasterDetailPage {
 				Detail = new ContentPage { Content = new View (), IsPlatformEnabled = true },
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform ()
 			};
 
 			Assert.Throws<InvalidOperationException> (() => page.Layout (new Rectangle(0, 0, 200, 200)));
@@ -258,7 +256,6 @@ namespace Xamarin.Forms.Core.UnitTests
 			var page = new MasterDetailPage {
 				Master = new ContentPage {Content = new View (), Title = "Foo"},
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform ()
 			};
 
 			Assert.Throws<InvalidOperationException> (() => ((IMasterDetailPageController)page).DetailBounds = new Rectangle(0, 0, 200, 200));
@@ -270,7 +267,6 @@ namespace Xamarin.Forms.Core.UnitTests
 			var page = new MasterDetailPage {
 				Detail = new ContentPage {Content = new View ()},
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform ()
 			};
 
 			Assert.Throws<InvalidOperationException> (() => ((IMasterDetailPageController)page).MasterBounds = new Rectangle(0, 0, 200, 200));
@@ -284,7 +280,6 @@ namespace Xamarin.Forms.Core.UnitTests
 				Master = new ContentPage { Content = new View (), IsPlatformEnabled = true, Title = "Foo" },
 				Detail = new ContentPage { Content = new View (), IsPlatformEnabled = true },
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform (),
 				MasterBehavior = MasterBehavior.Split
 			};
 
@@ -301,7 +296,6 @@ namespace Xamarin.Forms.Core.UnitTests
 				Master = new ContentPage { Content = new View (), IsPlatformEnabled = true, Title = "Foo" },
 				Detail = new ContentPage { Content = new View (), IsPlatformEnabled = true },
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform (),
 				MasterBehavior = MasterBehavior.SplitOnPortrait
 			};
 
@@ -317,7 +311,6 @@ namespace Xamarin.Forms.Core.UnitTests
 				Master = new ContentPage { Content = new View (), IsPlatformEnabled = true, Title = "Foo" },
 				Detail = new ContentPage { Content = new View (), IsPlatformEnabled = true },
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform (),
 				MasterBehavior = MasterBehavior.Popover
 			};
 			page.IsPresented = true;
@@ -335,7 +328,6 @@ namespace Xamarin.Forms.Core.UnitTests
 				Master = master,
 				IsPresented = true,
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform ()
 			};
 
 			((IMasterDetailPageController)mdp).BackButtonPressed += (sender, args) => {
@@ -366,7 +358,6 @@ namespace Xamarin.Forms.Core.UnitTests
 				Master = master,
 				IsPresented = true,
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform ()
 			};
 
 			((IMasterDetailPageController)mdp).BackButtonPressed += (sender, args) => {

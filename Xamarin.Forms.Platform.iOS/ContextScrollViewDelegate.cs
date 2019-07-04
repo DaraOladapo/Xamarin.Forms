@@ -45,7 +45,7 @@ namespace Xamarin.Forms.Platform.iOS
 		GlobalCloseContextGestureRecognizer _globalCloser;
 
 		bool _isDisposed;
-
+		static WeakReference<UIScrollView> s_scrollViewBeingScrolled;
 		UITableView _table;
 
 		public ContextScrollViewDelegate(UIView container, List<UIButton> buttons, bool isOpen)
@@ -72,6 +72,11 @@ namespace Xamarin.Forms.Platform.iOS
 
 		public override void DraggingStarted(UIScrollView scrollView)
 		{
+			if (ShouldIgnoreScrolling(scrollView))
+				return;
+
+			s_scrollViewBeingScrolled = new WeakReference<UIScrollView>(scrollView);
+			
 			if (!IsOpen)
 				SetButtonsShowing(true);
 
@@ -90,6 +95,9 @@ namespace Xamarin.Forms.Platform.iOS
 
 		public override void Scrolled(UIScrollView scrollView)
 		{
+			if (ShouldIgnoreScrolling(scrollView))
+				return;
+
 			var width = _finalButtonSize;
 			var count = _buttons.Count;
 
@@ -116,21 +124,23 @@ namespace Xamarin.Forms.Platform.iOS
 				SetButtonsShowing(false);
 				RestoreHighlight(scrollView);
 
-				ClearCloserRecognizer(scrollView);
-
-				if (ClosedCallback != null)
-					ClosedCallback();
+				s_scrollViewBeingScrolled = null;
+				ClearCloserRecognizer(GetContextCell(scrollView));
+				ClosedCallback?.Invoke();
 			}
 		}
 
 		public void Unhook(UIScrollView scrollView)
 		{
 			RestoreHighlight(scrollView);
-			ClearCloserRecognizer(scrollView);
+			ClearCloserRecognizer(GetContextCell(scrollView));
 		}
 
 		public override void WillEndDragging(UIScrollView scrollView, PointF velocity, ref PointF targetContentOffset)
 		{
+			if (ShouldIgnoreScrolling(scrollView))
+				return;
+
 			var width = ButtonsWidth;
 			var x = targetContentOffset.X;
 			var parentThreshold = scrollView.Frame.Width * .4f;
@@ -148,36 +158,35 @@ namespace Xamarin.Forms.Platform.iOS
 					while (view.Superview != null)
 					{
 						view = view.Superview;
-
-						NSAction close = () =>
-						{
-							if (UIDevice.CurrentDevice.CheckSystemVersion(8, 0))
-								RestoreHighlight(scrollView);
-
-							IsOpen = false;
-							scrollView.SetContentOffset(new PointF(0, 0), true);
-
-							ClearCloserRecognizer(scrollView);
-						};
-
 						var table = view as UITableView;
 						if (table != null)
 						{
+							ContextActionsCell contentCell = GetContextCell(scrollView);
+							NSAction close = () =>
+							{
+								if (UIDevice.CurrentDevice.CheckSystemVersion(8, 0))
+									RestoreHighlight(scrollView);
+
+								IsOpen = false;
+								scrollView.SetContentOffset(new PointF(0, 0), true);
+								ClearCloserRecognizer(contentCell);
+								contentCell = null;
+							};
+
 							_table = table;
 							_globalCloser = new GlobalCloseContextGestureRecognizer(scrollView, close);
 							_globalCloser.ShouldRecognizeSimultaneously = (recognizer, r) => r == _table.PanGestureRecognizer;
 							table.AddGestureRecognizer(_globalCloser);
 
 							_closer = new UITapGestureRecognizer(close);
-							var cell = GetContextCell(scrollView);
-							cell.ContentCell.AddGestureRecognizer(_closer);
+							contentCell.ContentCell.AddGestureRecognizer(_closer);
 						}
 					}
 				}
 			}
 			else
 			{
-				ClearCloserRecognizer(scrollView);
+				ClearCloserRecognizer(GetContextCell(scrollView));
 
 				IsOpen = false;
 				targetContentOffset = new PointF(0, 0);
@@ -185,6 +194,21 @@ namespace Xamarin.Forms.Platform.iOS
 				if (UIDevice.CurrentDevice.CheckSystemVersion(8, 0))
 					RestoreHighlight(scrollView);
 			}
+		}
+
+		static bool ShouldIgnoreScrolling(UIScrollView scrollView)
+		{
+			if (s_scrollViewBeingScrolled == null)
+				return false;
+
+			UIScrollView scrollViewBeingScrolled;
+			if (!s_scrollViewBeingScrolled.TryGetTarget(out scrollViewBeingScrolled) 
+				|| ReferenceEquals(scrollViewBeingScrolled, scrollView) 
+				|| !ReferenceEquals(((ContextScrollViewDelegate)scrollViewBeingScrolled.Delegate)?._table, ((ContextScrollViewDelegate)scrollView.Delegate)?._table))
+				return false;
+
+			scrollView.SetContentOffset(new PointF(0, 0), false);
+			return true;
 		}
 
 		protected override void Dispose(bool disposing)
@@ -198,6 +222,7 @@ namespace Xamarin.Forms.Platform.iOS
 			{
 				ClosedCallback = null;
 
+				s_scrollViewBeingScrolled = null;
 				_table = null;
 				_backgroundView = null;
 				_container = null;
@@ -208,13 +233,12 @@ namespace Xamarin.Forms.Platform.iOS
 			base.Dispose(disposing);
 		}
 
-		void ClearCloserRecognizer(UIScrollView scrollView)
+		void ClearCloserRecognizer(ContextActionsCell cell)
 		{
-			if (_globalCloser == null)
+			if (_globalCloser == null || _globalCloser.State == UIGestureRecognizerState.Cancelled)
 				return;
 
-			var cell = GetContextCell(scrollView);
-			cell.ContentCell.RemoveGestureRecognizer(_closer);
+			cell?.ContentCell?.RemoveGestureRecognizer(_closer);
 			_closer.Dispose();
 			_closer = null;
 
@@ -226,9 +250,9 @@ namespace Xamarin.Forms.Platform.iOS
 
 		ContextActionsCell GetContextCell(UIScrollView scrollView)
 		{
-			var view = scrollView.Superview.Superview;
+			var view = scrollView?.Superview?.Superview;
 			var cell = view as ContextActionsCell;
-			while (view.Superview != null)
+			while (view?.Superview != null)
 			{
 				cell = view as ContextActionsCell;
 				if (cell != null)

@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using UIKit;
+using Xamarin.Forms.Internals;
 using RectangleF = CoreGraphics.CGRect;
 using SizeF = CoreGraphics.CGSize;
 
@@ -10,15 +11,14 @@ namespace Xamarin.Forms.Platform.iOS
 	{
 		public override UITableViewCell GetCell(Cell item, UITableViewCell reusableCell, UITableView tv)
 		{
+			Performance.Start(out string reference);
+
 			var viewCell = (ViewCell)item;
 
 			var cell = reusableCell as ViewTableCell;
 			if (cell == null)
 				cell = new ViewTableCell(item.GetType().FullName);
-			else
-				cell.ViewCell.PropertyChanged -= ViewCellPropertyChanged;
 
-			viewCell.PropertyChanged += ViewCellPropertyChanged;
 			cell.ViewCell = viewCell;
 
 			SetRealCell(item, cell);
@@ -26,30 +26,21 @@ namespace Xamarin.Forms.Platform.iOS
 			WireUpForceUpdateSizeRequested(item, cell, tv);
 
 			UpdateBackground(cell, item);
-			UpdateIsEnabled(cell, viewCell);
+
+			SetAccessibility(cell, item);
+
+			Performance.Stop(reference);
 			return cell;
-		}
-
-		static void UpdateIsEnabled(ViewTableCell cell, ViewCell viewCell)
-		{
-			cell.UserInteractionEnabled = viewCell.IsEnabled;
-			cell.TextLabel.Enabled = viewCell.IsEnabled;
-		}
-
-		void ViewCellPropertyChanged(object sender, PropertyChangedEventArgs e)
-		{
-			var viewCell = (ViewCell)sender;
-			var realCell = (ViewTableCell)GetRealCell(viewCell);
-
-			if (e.PropertyName == Cell.IsEnabledProperty.PropertyName)
-				UpdateIsEnabled(realCell, viewCell);
 		}
 
 		internal class ViewTableCell : UITableViewCell, INativeElementView
 		{
 			WeakReference<IVisualElementRenderer> _rendererRef;
-
 			ViewCell _viewCell;
+
+			Element INativeElementView.Element => ViewCell;
+			internal bool SupressSeparator { get; set; }
+			bool _disposed;
 
 			public ViewTableCell(string key) : base(UITableViewCellStyle.Default, key)
 			{
@@ -66,12 +57,25 @@ namespace Xamarin.Forms.Platform.iOS
 				}
 			}
 
-			Element INativeElementView.Element => ViewCell;
+			void UpdateIsEnabled(bool isEnabled)
+			{
+				UserInteractionEnabled = isEnabled;
+				TextLabel.Enabled = isEnabled;
+			}
 
-			internal bool SupressSeparator { get; set; }
+			void ViewCellPropertyChanged(object sender, PropertyChangedEventArgs e)
+			{
+				var viewCell = (ViewCell)sender;
+				var realCell = (ViewTableCell)GetRealCell(viewCell);
+
+				if (e.PropertyName == Cell.IsEnabledProperty.PropertyName)
+					UpdateIsEnabled(_viewCell.IsEnabled);
+			}
 
 			public override void LayoutSubviews()
 			{
+				Performance.Start(out string reference);
+
 				//This sets the content views frame.
 				base.LayoutSubviews();
 
@@ -93,10 +97,14 @@ namespace Xamarin.Forms.Platform.iOS
 				IVisualElementRenderer renderer;
 				if (_rendererRef.TryGetTarget(out renderer))
 					renderer.NativeView.Frame = view.Bounds.ToRectangleF();
+
+				Performance.Stop(reference);
 			}
 
 			public override SizeF SizeThatFits(SizeF size)
 			{
+				Performance.Start(out string reference);
+
 				IVisualElementRenderer renderer;
 				if (!_rendererRef.TryGetTarget(out renderer))
 					return base.SizeThatFits(size);
@@ -106,33 +114,47 @@ namespace Xamarin.Forms.Platform.iOS
 
 				double width = size.Width;
 				var height = size.Height > 0 ? size.Height : double.PositiveInfinity;
-				var result = renderer.Element.Measure(width, height);
+				var result = renderer.Element.Measure(width, height, MeasureFlags.IncludeMargins);
 
 				// make sure to add in the separator if needed
 				var finalheight = (float)result.Request.Height + (SupressSeparator ? 0f : 1f) / UIScreen.MainScreen.Scale;
+
+				Performance.Stop(reference);
+
 				return new SizeF(size.Width, finalheight);
 			}
 
 			protected override void Dispose(bool disposing)
 			{
+				if (_disposed)
+					return;
+
 				if (disposing)
 				{
 					IVisualElementRenderer renderer;
 					if (_rendererRef != null && _rendererRef.TryGetTarget(out renderer) && renderer.Element != null)
 					{
-						var platform = renderer.Element.Platform as Platform;
-						if (platform != null)
-							platform.DisposeModelAndChildrenRenderers(renderer.Element);
-
+						renderer.Element.DisposeModalAndChildRenderers();
 						_rendererRef = null;
 					}
+
+					if (_viewCell != null)
+					{
+						_viewCell.PropertyChanged -= ViewCellPropertyChanged;
+					}
+					_viewCell = null;
 				}
+
+				_disposed = true;
 
 				base.Dispose(disposing);
 			}
 
 			IVisualElementRenderer GetNewRenderer()
 			{
+				if (_viewCell.View == null)
+					throw new InvalidOperationException($"ViewCell must have a {nameof(_viewCell.View)}");
+
 				var newRenderer = Platform.CreateRenderer(_viewCell.View);
 				_rendererRef = new WeakReference<IVisualElementRenderer>(newRenderer);
 				ContentView.AddSubview(newRenderer.NativeView);
@@ -141,14 +163,18 @@ namespace Xamarin.Forms.Platform.iOS
 
 			void UpdateCell(ViewCell cell)
 			{
-				ICellController cellController = _viewCell;
-				if (cellController != null)
-					Device.BeginInvokeOnMainThread(cellController.SendDisappearing);
+				Performance.Start(out string reference);
+
+				var oldCell = _viewCell;
+				if (oldCell != null)
+				{
+					Device.BeginInvokeOnMainThread(oldCell.SendDisappearing);
+					oldCell.PropertyChanged -= ViewCellPropertyChanged;
+				}
 
 				_viewCell = cell;
-				cellController = cell;
-
-				Device.BeginInvokeOnMainThread(cellController.SendAppearing);
+				_viewCell.PropertyChanged += ViewCellPropertyChanged;
+				Device.BeginInvokeOnMainThread(_viewCell.SendAppearing);
 
 				IVisualElementRenderer renderer;
 				if (_rendererRef == null || !_rendererRef.TryGetTarget(out renderer))
@@ -158,21 +184,26 @@ namespace Xamarin.Forms.Platform.iOS
 					if (renderer.Element != null && renderer == Platform.GetRenderer(renderer.Element))
 						renderer.Element.ClearValue(Platform.RendererProperty);
 
-					var type = Registrar.Registered.GetHandlerType(_viewCell.View.GetType());
-					if (renderer.GetType() == type || (renderer is Platform.DefaultRenderer && type == null))
-						renderer.SetElement(_viewCell.View);
+					var type = Internals.Registrar.Registered.GetHandlerTypeForObject(this._viewCell.View);
+					var reflectableType = renderer as System.Reflection.IReflectableType;
+					var rendererType = reflectableType != null ? reflectableType.GetTypeInfo().AsType() : renderer.GetType();
+					if (rendererType == type || (renderer is Platform.DefaultRenderer && type == null))
+						renderer.SetElement(this._viewCell.View);
 					else
 					{
 						//when cells are getting reused the element could be already set to another cell
 						//so we should dispose based on the renderer and not the renderer.Element
-						var platform = renderer.Element.Platform as Platform;
-						platform.DisposeRendererAndChildren(renderer);
+						renderer.DisposeRendererAndChildren();
+
 						renderer = GetNewRenderer();
 					}
 				}
 
 				Platform.SetRenderer(_viewCell.View, renderer);
+				UpdateIsEnabled(_viewCell.IsEnabled);
+				Performance.Stop(reference);
 			}
+
 		}
 	}
 }

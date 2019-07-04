@@ -7,6 +7,7 @@ using System.Linq;
 
 namespace Xamarin.Forms.Internals
 {
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public class ToolbarTracker
 	{
 		int _masterDetails;
@@ -55,10 +56,7 @@ namespace Xamarin.Forms.Internals
 		public event EventHandler CollectionChanged;
 
 		void EmitCollectionChanged()
-		{
-			if (CollectionChanged != null)
-				CollectionChanged(this, EventArgs.Empty);
-		}
+			=> CollectionChanged?.Invoke(this, EventArgs.Empty);
 
 		IEnumerable<ToolbarItem> GetCurrentToolbarItems(Page page)
 		{

@@ -1,47 +1,59 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Reflection;
+using System.Xml;
+using Xamarin.Forms.Internals;
+using Xamarin.Forms.Xaml.Internals;
 
 namespace Xamarin.Forms.Xaml
 {
-	internal class RegisterXNamesVisitor : IXamlNodeVisitor
+	class RegisterXNamesVisitor : IXamlNodeVisitor
 	{
-		public RegisterXNamesVisitor(HydratationContext context)
+		public RegisterXNamesVisitor(HydrationContext context)
 		{
+			Context = context;
 			Values = context.Values;
 		}
 
 		Dictionary<INode, object> Values { get; }
-
-		public bool VisitChildrenFirst
-		{
-			get { return false; }
-		}
-
-		public bool StopOnDataTemplate
-		{
-			get { return true; }
-		}
-
-		public bool StopOnResourceDictionary
-		{
-			get { return false; }
-		}
+		HydrationContext Context { get; }
+		public TreeVisitingMode VisitingMode => TreeVisitingMode.TopDown;
+		public bool StopOnDataTemplate => true;
+		public bool StopOnResourceDictionary => false;
+		public bool VisitNodeOnDataTemplate => false;
+		public bool SkipChildren(INode node, INode parentNode) => false;
+		public bool IsResourceDictionary(ElementNode node) => typeof(ResourceDictionary).IsAssignableFrom(Context.Types[node]);
 
 		public void Visit(ValueNode node, INode parentNode)
 		{
 			if (!IsXNameProperty(node, parentNode))
 				return;
-			try
-			{
+
+			try {
 				((IElementNode)parentNode).Namescope.RegisterName((string)node.Value, Values[parentNode]);
 			}
-			catch (ArgumentException ae)
-			{
+			catch (ArgumentException ae) {
 				if (ae.ParamName != "name")
 					throw ae;
-				throw new XamlParseException(
-					string.Format("An element with the name \"{0}\" already exists in this NameScope", (string)node.Value), node);
+				var xpe = new XamlParseException($"An element with the name \"{(string)node.Value}\" already exists in this NameScope", node);
+				if (Context.ExceptionHandler != null) {
+					Context.ExceptionHandler(xpe);
+					return;
+				}
+				throw xpe;
 			}
+			catch (KeyNotFoundException knfe) {
+				if (Context.ExceptionHandler != null) {
+					Context.ExceptionHandler(knfe);
+					return;
+				}
+				throw knfe;
+			}
+
+			if (Values[parentNode] is Element element)
+				element.StyleId = element.StyleId ?? (string)node.Value;
 		}
 
 		public void Visit(MarkupNode node, INode parentNode)

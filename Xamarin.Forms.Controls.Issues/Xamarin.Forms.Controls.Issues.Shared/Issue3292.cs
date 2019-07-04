@@ -11,8 +11,11 @@ using Xamarin.UITest;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
+#if UITEST
+	[NUnit.Framework.Category(Core.UITests.UITestCategories.UwpIgnore)]
+#endif
 	[Preserve (AllMembers = true)]
 	[Issue (IssueTracker.Github, 3292, "TableSection.Title property binding fails in XAML")]
 	public class Issue3292 : TestContentPage 

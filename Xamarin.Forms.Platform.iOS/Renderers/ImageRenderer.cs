@@ -1,10 +1,12 @@
 using System;
+using System.Drawing;
 using System.ComponentModel;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Foundation;
 using UIKit;
+using Xamarin.Forms.Internals;
 using RectangleF = CoreGraphics.CGRect;
 
 namespace Xamarin.Forms.Platform.iOS
@@ -26,11 +28,14 @@ namespace Xamarin.Forms.Platform.iOS
 		}
 	}
 
-	public class ImageRenderer : ViewRenderer<Image, UIImageView>
+	public class ImageRenderer : ViewRenderer<Image, UIImageView>, IImageVisualElementRenderer
 	{
 		bool _isDisposed;
 
-		IElementController ElementController => Element as IElementController;
+		public ImageRenderer() : base()
+		{
+			ImageElementManager.Init(this);
+		}
 
 		protected override void Dispose(bool disposing)
 		{
@@ -42,8 +47,8 @@ namespace Xamarin.Forms.Platform.iOS
 				UIImage oldUIImage;
 				if (Control != null && (oldUIImage = Control.Image) != null)
 				{
+					ImageElementManager.Dispose(this);
 					oldUIImage.Dispose();
-					oldUIImage = null;
 				}
 			}
 
@@ -52,93 +57,64 @@ namespace Xamarin.Forms.Platform.iOS
 			base.Dispose(disposing);
 		}
 
-		protected override void OnElementChanged(ElementChangedEventArgs<Image> e)
+		protected override async void OnElementChanged(ElementChangedEventArgs<Image> e)
 		{
-			if (Control == null)
-			{
-				var imageView = new UIImageView(RectangleF.Empty);
-				imageView.ContentMode = UIViewContentMode.ScaleAspectFit;
-				imageView.ClipsToBounds = true;
-				SetNativeControl(imageView);
-			}
-
 			if (e.NewElement != null)
 			{
-				SetAspect();
-				SetImage(e.OldElement);
-				SetOpacity();
+				if (Control == null)
+				{
+					var imageView = new UIImageView(RectangleF.Empty);
+					imageView.ContentMode = UIViewContentMode.ScaleAspectFit;
+					imageView.ClipsToBounds = true;
+					SetNativeControl(imageView);
+				}
+
+				await TrySetImage(e.OldElement as Image);
 			}
 
 			base.OnElementChanged(e);
 		}
 
-		protected override void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
+		protected override async void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
 		{
 			base.OnElementPropertyChanged(sender, e);
+
 			if (e.PropertyName == Image.SourceProperty.PropertyName)
-				SetImage();
-			else if (e.PropertyName == Image.IsOpaqueProperty.PropertyName)
-				SetOpacity();
-			else if (e.PropertyName == Image.AspectProperty.PropertyName)
-				SetAspect();
+				await TrySetImage().ConfigureAwait(false);
 		}
 
-		void SetAspect()
+		protected virtual async Task TrySetImage(Image previous = null)
 		{
-			Control.ContentMode = Element.Aspect.ToUIViewContentMode();
-		}
+			// By default we'll just catch and log any exceptions thrown by SetImage so they don't bring down
+			// the application; a custom renderer can override this method and handle exceptions from
+			// SetImage differently if it wants to
 
-		async void SetImage(Image oldElement = null)
-		{
-			var source = Element.Source;
-
-			if (oldElement != null)
+			try
 			{
-				var oldSource = oldElement.Source;
-				if (Equals(oldSource, source))
-					return;
-
-				if (oldSource is FileImageSource && source is FileImageSource && ((FileImageSource)oldSource).File == ((FileImageSource)source).File)
-					return;
-
-				Control.Image = null;
+				await SetImage(previous).ConfigureAwait(false);
 			}
-
-			IImageSourceHandler handler;
-
-			((IImageController)Element).SetIsLoading(true);
-
-			if (source != null && (handler = Registrar.Registered.GetHandler<IImageSourceHandler>(source.GetType())) != null)
+			catch (Exception ex)
 			{
-				UIImage uiimage;
-				try
-				{
-					uiimage = await handler.LoadImageAsync(source, scale: (float)UIScreen.MainScreen.Scale);
-				}
-				catch (OperationCanceledException)
-				{
-					uiimage = null;
-				}
-
-				var imageView = Control;
-				if (imageView != null)
-					imageView.Image = uiimage;
-
-				if (!_isDisposed)
-					((IVisualElementController)Element).NativeSizeChanged();
+				Log.Warning(nameof(ImageRenderer), "Error loading image: {0}", ex);
 			}
-			else
-				Control.Image = null;
-
-			if (!_isDisposed)
-				((IImageController)Element).SetIsLoading(false);
+			finally
+			{
+				((IImageController)Element)?.SetIsLoading(false);
+			}
 		}
 
-		void SetOpacity()
+		protected async Task SetImage(Image oldElement = null)
 		{
-			Control.Opaque = Element.IsOpaque;
+			await ImageElementManager.SetImage(this, Element, oldElement).ConfigureAwait(false);
 		}
+
+		void IImageVisualElementRenderer.SetImage(UIImage image) => Control.Image = image;
+
+		bool IImageVisualElementRenderer.IsDisposed => _isDisposed;
+
+		UIImageView IImageVisualElementRenderer.GetImage() => Control;
 	}
+
 
 	public interface IImageSourceHandler : IRegisterable
 	{
@@ -151,12 +127,15 @@ namespace Xamarin.Forms.Platform.iOS
 		{
 			UIImage image = null;
 			var filesource = imagesource as FileImageSource;
-			if (filesource != null)
+			var file = filesource?.File;
+			if (!string.IsNullOrEmpty(file))
+				image = File.Exists(file) ? new UIImage(file) : UIImage.FromBundle(file);
+
+			if (image == null)
 			{
-				var file = filesource.File;
-				if (!string.IsNullOrEmpty(file))
-					image = File.Exists(file) ? new UIImage(file) : UIImage.FromBundle(file);
+				Log.Warning(nameof(FileImageSourceHandler), "Could not find image: {0}", imagesource);
 			}
+
 			return Task.FromResult(image);
 		}
 	}
@@ -167,7 +146,7 @@ namespace Xamarin.Forms.Platform.iOS
 		{
 			UIImage image = null;
 			var streamsource = imagesource as StreamImageSource;
-			if (streamsource != null && streamsource.Stream != null)
+			if (streamsource?.Stream != null)
 			{
 				using (var streamImage = await ((IStreamImageSource)streamsource).GetStreamAsync(cancelationToken).ConfigureAwait(false))
 				{
@@ -175,6 +154,12 @@ namespace Xamarin.Forms.Platform.iOS
 						image = UIImage.LoadFromData(NSData.FromStream(streamImage), scale);
 				}
 			}
+
+			if (image == null)
+			{
+				Log.Warning(nameof(StreamImagesourceHandler), "Could not load image: {0}", streamsource);
+			}
+
 			return image;
 		}
 	}
@@ -185,7 +170,7 @@ namespace Xamarin.Forms.Platform.iOS
 		{
 			UIImage image = null;
 			var imageLoader = imagesource as UriImageSource;
-			if (imageLoader != null && imageLoader.Uri != null)
+			if (imageLoader?.Uri != null)
 			{
 				using (var streamImage = await imageLoader.GetStreamAsync(cancelationToken).ConfigureAwait(false))
 				{
@@ -193,7 +178,52 @@ namespace Xamarin.Forms.Platform.iOS
 						image = UIImage.LoadFromData(NSData.FromStream(streamImage), scale);
 				}
 			}
+
+			if (image == null)
+			{
+				Log.Warning(nameof(ImageLoaderSourceHandler), "Could not load image: {0}", imageLoader);
+			}
+
 			return image;
+		}
+	}
+
+	public sealed class FontImageSourceHandler : IImageSourceHandler
+	{
+		//should this be the default color on the BP for iOS? 
+		readonly Color _defaultColor = Color.White;
+
+		public Task<UIImage> LoadImageAsync(
+			ImageSource imagesource, 
+			CancellationToken cancelationToken = default(CancellationToken), 
+			float scale = 1f)
+		{
+			UIImage image = null;
+			var fontsource = imagesource as FontImageSource;
+			if (fontsource != null)
+			{
+				var iconcolor = fontsource.Color.IsDefault ? _defaultColor : fontsource.Color;
+				var imagesize = new SizeF((float)fontsource.Size, (float)fontsource.Size);
+				var font = UIFont.FromName(fontsource.FontFamily ?? string.Empty, (float)fontsource.Size) ??
+					UIFont.SystemFontOfSize((float)fontsource.Size);
+
+				UIGraphics.BeginImageContextWithOptions(imagesize, false, 0f);
+				var attString = new NSAttributedString(fontsource.Glyph, font: font, foregroundColor: iconcolor.ToUIColor());
+				var ctx = new NSStringDrawingContext();
+				var boundingRect = attString.GetBoundingRect(imagesize, (NSStringDrawingOptions)0, ctx);
+				attString.DrawString(new RectangleF(
+					imagesize.Width / 2 - boundingRect.Size.Width / 2,
+					imagesize.Height / 2 - boundingRect.Size.Height / 2,
+					imagesize.Width,
+					imagesize.Height));
+				image = UIGraphics.GetImageFromCurrentImageContext();
+				UIGraphics.EndImageContext();
+
+				if (iconcolor != _defaultColor)
+					image = image.ImageWithRenderingMode(UIImageRenderingMode.AlwaysOriginal);
+			}
+			return Task.FromResult(image);
+
 		}
 	}
 }

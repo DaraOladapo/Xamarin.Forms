@@ -1,8 +1,11 @@
 using System;
+using System.ComponentModel;
+using Xamarin.Forms.Internals;
 
-namespace Xamarin.Forms
+namespace Xamarin.Forms.Internals
 {
-	internal abstract class TableModel: ITableModel
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	public abstract class TableModel: ITableModel
 	{
 		public virtual Cell GetCell(int section, int row)
 		{
@@ -33,6 +36,11 @@ namespace Xamarin.Forms
 		public virtual string GetSectionTitle(int section)
 		{
 			return null;
+		}
+
+		public virtual Color GetSectionTextColor(int section)
+		{
+			return Color.Default;
 		}
 
 		public event EventHandler<EventArg<object>> ItemLongPressed;

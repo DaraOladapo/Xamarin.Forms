@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 
-namespace Xamarin.Forms
+namespace Xamarin.Forms.Internals
 {
-	internal class NavigationModel
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	public class NavigationModel
 	{
 		readonly List<Page> _modalStack = new List<Page>();
 		readonly List<List<Page>> _navTree = new List<List<Page>>();
@@ -43,6 +45,7 @@ namespace Xamarin.Forms
 		public void Clear()
 		{
 			_navTree.Clear();
+			_modalStack.Clear();
 		}
 
 		public void InsertPageBefore(Page page, Page before)
@@ -58,7 +61,7 @@ namespace Xamarin.Forms
 
 		public Page Pop(Page ancestralNav)
 		{
-			ancestralNav = AncestorToRoot(ancestralNav);
+			ancestralNav = ancestralNav.AncestorToRoot();
 			foreach (List<Page> stack in _navTree)
 			{
 				if (stack.Contains(ancestralNav))
@@ -108,7 +111,7 @@ namespace Xamarin.Forms
 
 		public void PopToRoot(Page ancestralNav)
 		{
-			ancestralNav = AncestorToRoot(ancestralNav);
+			ancestralNav = ancestralNav.AncestorToRoot();
 			foreach (List<Page> stack in _navTree)
 			{
 				if (stack.Contains(ancestralNav))
@@ -133,7 +136,7 @@ namespace Xamarin.Forms
 				return;
 			}
 
-			ancestralNav = AncestorToRoot(ancestralNav);
+			ancestralNav = ancestralNav.AncestorToRoot();
 
 			foreach (List<Page> stack in _navTree)
 			{
@@ -164,14 +167,6 @@ namespace Xamarin.Forms
 			}
 
 			return found;
-		}
-
-		Page AncestorToRoot(Page ancestor)
-		{
-			Page result = ancestor;
-			while (!Application.IsApplicationOrNull(result.RealParent))
-				result = (Page)result.RealParent;
-			return result;
 		}
 	}
 }

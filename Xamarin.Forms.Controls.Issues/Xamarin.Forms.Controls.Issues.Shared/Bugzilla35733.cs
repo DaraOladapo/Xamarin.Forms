@@ -6,13 +6,18 @@ using Xamarin.Forms.Internals;
 
 #if UITEST
 using Xamarin.UITest;
+using Xamarin.Forms.Core.UITests;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers = true)]
 	[Issue (IssueTracker.Bugzilla, 35733, "iOS WebView crashes when loading an URL with encoded parameters", PlatformAffected.iOS)]
+#if UITEST
+	[NUnit.Framework.Category(UITestCategories.WebView)]
+	[NUnit.Framework.Category(UITestCategories.UwpIgnore)]
+#endif
 	public class Bugzilla35733 : TestContentPage // or TestMasterDetailPage, etc ...
 	{
 		protected override void Init ()
@@ -34,7 +39,8 @@ namespace Xamarin.Forms.Controls
 
 		async Task ShowLocation(string locationString) 
 		{
-			var stringUri = string.Format("http://m.liu.se/karta/karta?l=en&px_location={0}", Uri.EscapeDataString(locationString));
+			var stringUri = $"https://raw.githubusercontent.com/xamarin/Xamarin.Forms/master/README.md?l=en&px_location={Uri.EscapeDataString(locationString)}";
+
 			var uri = new Uri(stringUri);
 			var webPage = new ContentPage {
 				Title = "WebViewTest",

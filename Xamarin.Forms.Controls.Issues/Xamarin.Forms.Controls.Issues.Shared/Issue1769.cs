@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Xamarin.Forms.CustomAttributes;
 using Xamarin.Forms.Internals;
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers=true)]
 	[Issue (IssueTracker.Github, 1769, "PushAsync with Switch produces NRE", PlatformAffected.Android)]
@@ -63,7 +63,7 @@ namespace Xamarin.Forms.Controls
 				};
 
 				// Accomodate iPhone status bar.
-				Padding = new Thickness(10, Device.OnPlatform(20, 0, 0), 10, 5);
+				Padding = Device.RuntimePlatform == Device.iOS ? new Thickness(10, 20, 10, 5) : new Thickness(10, 0, 10, 5);
 
 				// Build the page.
 				Content = new StackLayout

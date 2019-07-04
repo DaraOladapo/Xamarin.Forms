@@ -2,7 +2,8 @@ using System;
 
 namespace Xamarin.Forms.Xaml
 {
-	[ContentProperty("TypeName")]
+	[ContentProperty(nameof(TypeName))]
+	[ProvideCompiled("Xamarin.Forms.Build.Tasks.TypeExtension")]
 	public class TypeExtension : IMarkupExtension<Type>
 	{
 		public string TypeName { get; set; }
@@ -10,10 +11,13 @@ namespace Xamarin.Forms.Xaml
 		public Type ProvideValue(IServiceProvider serviceProvider)
 		{
 			if (serviceProvider == null)
-				throw new ArgumentNullException("serviceProvider");
-			var typeResolver = serviceProvider.GetService(typeof (IXamlTypeResolver)) as IXamlTypeResolver;
-			if (typeResolver == null)
+				throw new ArgumentNullException(nameof(serviceProvider));
+			if (!(serviceProvider.GetService(typeof(IXamlTypeResolver)) is IXamlTypeResolver typeResolver))
 				throw new ArgumentException("No IXamlTypeResolver in IServiceProvider");
+			if (string.IsNullOrEmpty(TypeName)) {
+				var li = (serviceProvider.GetService(typeof(IXmlLineInfoProvider)) is IXmlLineInfoProvider lip) ? lip.XmlLineInfo : new XmlLineInfo();
+				throw new XamlParseException("TypeName isn't set.", li);
+			}
 
 			return typeResolver.Resolve(TypeName, serviceProvider);
 		}

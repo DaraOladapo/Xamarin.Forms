@@ -1,10 +1,30 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 
-namespace Xamarin.Forms
+namespace Xamarin.Forms.Internals
 {
-	internal static class EnumerableExtensions
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	public static class EnumerableExtensions
 	{
+
+		public static IEnumerable<T> GetChildGesturesFor<T>(this IEnumerable<GestureElement> elements, Func<T, bool> predicate = null) where T : GestureRecognizer
+		{
+			if (elements == null)
+				yield break;
+
+			if (predicate == null)
+				predicate = x => true;
+
+			foreach (var element in elements)
+				foreach (var item in element.GestureRecognizers)
+				{
+					var gesture = item as T;
+					if (gesture != null && predicate(gesture))
+						yield return gesture;
+				}
+		}
+
 		public static IEnumerable<T> GetGesturesFor<T>(this IEnumerable<IGestureRecognizer> gestures, Func<T, bool> predicate = null) where T : GestureRecognizer
 		{
 			if (gestures == null)
@@ -13,7 +33,7 @@ namespace Xamarin.Forms
 			if (predicate == null)
 				predicate = x => true;
 
-			foreach (IGestureRecognizer item in gestures)
+			foreach (IGestureRecognizer item in new List<IGestureRecognizer>(gestures))
 			{
 				var gesture = item as T;
 				if (gesture != null && predicate(gesture))
@@ -31,7 +51,7 @@ namespace Xamarin.Forms
 			yield return item;
 		}
 
-		internal static void ForEach<T>(this IEnumerable<T> enumeration, Action<T> action)
+		public static void ForEach<T>(this IEnumerable<T> enumeration, Action<T> action)
 		{
 			foreach (T item in enumeration)
 			{
@@ -39,7 +59,21 @@ namespace Xamarin.Forms
 			}
 		}
 
-		internal static int IndexOf<T>(this IEnumerable<T> enumerable, T item)
+		public static IDictionary<TKey, List<TSource>> GroupToDictionary<TSource, TKey>(this IEnumerable<TSource> enumeration, Func<TSource, TKey> func)
+		{
+			var result = new Dictionary<TKey, List<TSource>>();
+			foreach (TSource item in enumeration)
+			{
+				var group = func(item);
+				if (!result.ContainsKey(group))
+					result.Add(group, new List<TSource> { item });
+				else
+					result[group].Add(item);
+			}
+			return result;
+		}
+
+		public static int IndexOf<T>(this IEnumerable<T> enumerable, T item)
 		{
 			if (enumerable == null)
 				throw new ArgumentNullException("enumerable");
@@ -56,7 +90,7 @@ namespace Xamarin.Forms
 			return -1;
 		}
 
-		internal static int IndexOf<T>(this IEnumerable<T> enumerable, Func<T, bool> predicate)
+		public static int IndexOf<T>(this IEnumerable<T> enumerable, Func<T, bool> predicate)
 		{
 			var i = 0;
 			foreach (T element in enumerable)
@@ -70,7 +104,7 @@ namespace Xamarin.Forms
 			return -1;
 		}
 
-		internal static IEnumerable<T> Prepend<T>(this IEnumerable<T> enumerable, T item)
+		public static IEnumerable<T> Prepend<T>(this IEnumerable<T> enumerable, T item)
 		{
 			yield return item;
 

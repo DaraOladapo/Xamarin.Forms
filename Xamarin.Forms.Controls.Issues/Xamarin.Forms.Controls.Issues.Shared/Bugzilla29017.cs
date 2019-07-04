@@ -8,7 +8,7 @@ using Xamarin.UITest;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Issue (IssueTracker.Bugzilla, 29017, "Pin clicked does not work on iOS maps")]
 	public class Issue29017 : TestContentPage // or TestMasterDetailPage, etc ...
@@ -70,13 +70,5 @@ namespace Xamarin.Forms.Controls
 		{
 			_lbl.Text = "Click " + DateTime.Now.ToLocalTime ();
 		}
-
-#if UITEST
-		[Test]
-		public void Issue1Test ()
-		{
-
-		}
-#endif
 	}
 }

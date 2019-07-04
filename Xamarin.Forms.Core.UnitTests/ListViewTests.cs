@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using NUnit.Framework;
+using Xamarin.Forms.Internals;
 
 namespace Xamarin.Forms.Core.UnitTests
 {
@@ -44,6 +45,17 @@ namespace Xamarin.Forms.Core.UnitTests
 		{
 			public string Name { get; set; }
 			public string Description { get; set; }
+
+			public override string ToString() => Name ?? base.ToString();
+		}
+
+		static ListItem[] CreateListItemCollection()
+		{
+			return new[]
+			{
+				new ListItem { Name = "Foo", Description = "Bar" },
+				new ListItem { Name = "Baz", Description = "Raz" }
+			};
 		}
 
 		[Test]
@@ -54,10 +66,7 @@ namespace Xamarin.Forms.Core.UnitTests
 			cellTemplate.SetBinding (TextCell.DetailProperty, new Binding ("Description"));
 
 			var listView = new ListView {
-				ItemsSource = new[] {
-					new ListItem {Name = "Foo", Description = "Bar"},
-					new ListItem {Name = "Baz", Description = "Raz"}
-				},
+				ItemsSource = CreateListItemCollection(),
 				ItemTemplate = cellTemplate
 			};
 
@@ -84,6 +93,27 @@ namespace Xamarin.Forms.Core.UnitTests
 			Assert.That (cell, Is.Not.Null);
 			Assert.That (cell, Is.InstanceOf<TextCell>());
 			Assert.That (((TextCell) cell).Text, Is.Null);
+		}
+
+		[Test]
+		public void ItemTemplateIsNullObjectExecutesToString()
+		{
+			var listView = new ListView
+			{
+				ItemsSource = CreateListItemCollection()
+			};
+
+			Assert.AreEqual(2, listView.TemplatedItems.Count);
+
+			Cell cell = listView.TemplatedItems[0];
+			Assert.That(cell, Is.Not.Null);
+			Assert.That(cell, Is.InstanceOf<TextCell>());
+			Assert.That(((TextCell)cell).Text, Is.EqualTo("Foo"));
+
+			cell = listView.TemplatedItems[1];
+			Assert.That(cell, Is.Not.Null);
+			Assert.That(cell, Is.InstanceOf<TextCell>());
+			Assert.That(((TextCell)cell).Text, Is.EqualTo("Baz"));
 		}
 
 		[Test]
@@ -274,7 +304,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		{
 			var listView = new ListView {
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform()
 			};
 
 			object item = new object();
@@ -314,7 +343,6 @@ namespace Xamarin.Forms.Core.UnitTests
 			Assert.That (requested, Is.False);
 
 			listView.IsPlatformEnabled = true;
-			listView.Platform = new UnitPlatform();
 
 			Assert.That (requested, Is.True);
 		}
@@ -325,7 +353,6 @@ namespace Xamarin.Forms.Core.UnitTests
 			// Fake a renderer so we pass along messages right away
 			var listView = new ListView {
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform(),
 				IsGroupingEnabled = true
 			};
 
@@ -351,7 +378,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		{
 			var listView = new ListView {
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform()
 			};
 
 			Assert.That (() => listView.ScrollTo (new object(), (ScrollToPosition) 500, true), Throws.ArgumentException);
@@ -366,7 +392,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		{
 			var listView = new ListView {
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform (),
 				HasUnevenRows = false,
 				RowHeight = 50,
 				ItemsSource = Enumerable.Range (0, 20).ToList ()
@@ -385,7 +410,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		{
 			var listView = new ListView {
 				IsPlatformEnabled = true,
-				Platform = new UnitPlatform (),
 				HasUnevenRows = true,
 				RowHeight = 50,
 				ItemsSource = Enumerable.Range (0, 20).ToList ()
@@ -490,7 +514,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void UncollectableHeaderReferences ()
 		{
 			var list = new ListView {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true,
 				ItemTemplate = new DataTemplate (typeof (TextCell)) {
 					Bindings = {
@@ -536,7 +559,6 @@ namespace Xamarin.Forms.Core.UnitTests
 			};
 
 			var list = new ListView {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true,
 				ItemsSource = source,
 				ItemTemplate = new DataTemplate (typeof (TextCell))
@@ -561,7 +583,6 @@ namespace Xamarin.Forms.Core.UnitTests
 			};
 
 			var list = new ListView {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true,
 				IsGroupingEnabled = true,
 				ItemsSource = source,
@@ -1472,20 +1493,19 @@ namespace Xamarin.Forms.Core.UnitTests
 			Assert.That (cell.Parent, Is.Null);
 		}
 
-		[TestCase (TargetPlatform.Android, ListViewCachingStrategy.RecycleElement)]
-		[TestCase (TargetPlatform.iOS, ListViewCachingStrategy.RecycleElement)]
-		[TestCase (TargetPlatform.Windows, ListViewCachingStrategy.RetainElement)]
-		[TestCase (TargetPlatform.Other, ListViewCachingStrategy.RetainElement)]
-		[TestCase (TargetPlatform.WinPhone, ListViewCachingStrategy.RetainElement)]
-		public void EnforcesCachingStrategy (TargetPlatform platform, ListViewCachingStrategy expected)
+		[TestCase (Device.Android, ListViewCachingStrategy.RecycleElement)]
+		[TestCase (Device.iOS, ListViewCachingStrategy.RecycleElement)]
+		[TestCase(Device.UWP, ListViewCachingStrategy.RetainElement)]
+		[TestCase ("Other", ListViewCachingStrategy.RetainElement)]
+		public void EnforcesCachingStrategy (string platform, ListViewCachingStrategy expected)
 		{
-			var oldOS = Device.OS;
+			var oldOS = Device.RuntimePlatform;
 			// we need to do this because otherwise we cant set the caching strategy
-			Device.OS = platform;
+			((MockPlatformServices)Device.PlatformServices).RuntimePlatform = platform;
 			var listView = new ListView (ListViewCachingStrategy.RecycleElement);
 
 			Assert.AreEqual (expected, listView.CachingStrategy);
-			Device.OS = oldOS;
+			((MockPlatformServices)Device.PlatformServices).RuntimePlatform = oldOS;
 		}
 
 		[Test]
@@ -1504,9 +1524,9 @@ namespace Xamarin.Forms.Core.UnitTests
 				"Bar"
 			};
 
-			var oldOS = Device.OS;
+			var oldOS = Device.RuntimePlatform;
 			// we need to do this because otherwise we cant set the caching strategy
-			Device.OS = TargetPlatform.Android;
+			((MockPlatformServices)Device.PlatformServices).RuntimePlatform = Device.Android;
 
 			var bindable = new ListView (ListViewCachingStrategy.RecycleElement);
 			bindable.ItemTemplate = new DataTemplate (typeof (TextCell)) {
@@ -1521,7 +1541,7 @@ namespace Xamarin.Forms.Core.UnitTests
 
 			Assert.False(ReferenceEquals (item1, item2));
 
-			Device.OS = oldOS;
+			((MockPlatformServices)Device.PlatformServices).RuntimePlatform = oldOS;
 		}
 	}
 }

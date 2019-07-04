@@ -6,12 +6,17 @@ using Android.Views;
 using AListView = Android.Widget.ListView;
 using AView = Android.Views.View;
 using Xamarin.Forms.Internals;
+using System;
+using Xamarin.Forms.PlatformConfiguration.AndroidSpecific;
+using Android.Widget;
+using Android.Runtime;
 
 namespace Xamarin.Forms.Platform.Android
 {
 	public class ListViewRenderer : ViewRenderer<ListView, AListView>, SwipeRefreshLayout.IOnRefreshListener
 	{
 		ListViewAdapter _adapter;
+		bool _disposed;
 		IVisualElementRenderer _headerRenderer;
 		IVisualElementRenderer _footerRenderer;
 		Container _headerView;
@@ -23,6 +28,16 @@ namespace Xamarin.Forms.Platform.Android
 		IListViewController Controller => Element;
 		ITemplatedItemsView<Cell> TemplatedItemsView => Element;
 
+		ScrollBarVisibility _defaultHorizontalScrollVisibility = 0;
+		ScrollBarVisibility _defaultVerticalScrollVisibility = 0;
+
+		public ListViewRenderer(Context context) : base(context)
+		{
+			AutoPackage = false;
+		}
+
+		[Obsolete("This constructor is obsolete as of version 2.5. Please use ListViewRenderer(Context) instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public ListViewRenderer()
 		{
 			AutoPackage = false;
@@ -36,30 +51,40 @@ namespace Xamarin.Forms.Platform.Android
 
 		protected override void Dispose(bool disposing)
 		{
+			if (_disposed)
+			{
+				return;
+			}
+
+			_disposed = true;
+
 			if (disposing)
 			{
-				if (_headerView == null)
-					return;
-
 				if (_headerRenderer != null)
 				{
-					_headerRenderer.ViewGroup.RemoveAllViews();
+					Platform.ClearRenderer(_headerRenderer.View);
 					_headerRenderer.Dispose();
 					_headerRenderer = null;
 				}
 
+				_headerView?.Dispose();
+				_headerView = null;
+
 				if (_footerRenderer != null)
 				{
-					_footerRenderer.ViewGroup.RemoveAllViews();
+					Platform.ClearRenderer(_footerRenderer.View);
 					_footerRenderer.Dispose();
 					_footerRenderer = null;
 				}
 
-				_headerView.Dispose();
-				_headerView = null;
-
-				_footerView.Dispose();
+				_footerView?.Dispose();
 				_footerView = null;
+
+				// Unhook the adapter from the ListView before disposing of it
+				if (Control != null)
+				{
+					Control.Adapter = null;
+				}
 
 				if (_adapter != null)
 				{
@@ -77,6 +102,9 @@ namespace Xamarin.Forms.Platform.Android
 		{
 			return new Size(40, 40);
 		}
+
+		protected virtual SwipeRefreshLayout CreateNativePullToRefresh(Context context)
+			=> new SwipeRefreshLayoutWithFixedNestedScrolling(context);
 
 		protected override void OnAttachedToWindow()
 		{
@@ -110,6 +138,12 @@ namespace Xamarin.Forms.Platform.Android
 
 				if (_adapter != null)
 				{
+					// Unhook the adapter from the ListView before disposing of it
+					if (Control != null)
+					{
+						Control.Adapter = null;
+					}
+
 					_adapter.Dispose();
 					_adapter = null;
 				}
@@ -122,9 +156,11 @@ namespace Xamarin.Forms.Platform.Android
 				{
 					var ctx = Context;
 					nativeListView = CreateNativeControl();
-					_refresh = new SwipeRefreshLayout(ctx);
+					if (Forms.IsLollipopOrNewer)
+						nativeListView.NestedScrollingEnabled = true;
+					_refresh = CreateNativePullToRefresh(ctx);
 					_refresh.SetOnRefreshListener(this);
-					_refresh.AddView(nativeListView, LayoutParams.MatchParent);
+					_refresh.AddView(nativeListView, new LayoutParams(LayoutParams.MatchParent, LayoutParams.MatchParent));
 					SetNativeControl(nativeListView, _refresh);
 
 					_headerView = new Container(ctx);
@@ -139,7 +175,7 @@ namespace Xamarin.Forms.Platform.Android
 				nativeListView.Focusable = false;
 				nativeListView.DescendantFocusability = DescendantFocusability.AfterDescendants;
 				nativeListView.OnFocusChangeListener = this;
-				nativeListView.Adapter = _adapter = new ListViewAdapter(Context, nativeListView, e.NewElement);
+				nativeListView.Adapter = _adapter = e.NewElement.IsGroupingEnabled && e.NewElement.OnThisPlatform().IsFastScrollEnabled() ? new GroupedListViewAdapter(Context, nativeListView, e.NewElement) : new ListViewAdapter(Context, nativeListView, e.NewElement);
 				_adapter.HeaderView = _headerView;
 				_adapter.FooterView = _footerView;
 				_adapter.IsAttachedToWindow = _isAttached;
@@ -147,7 +183,26 @@ namespace Xamarin.Forms.Platform.Android
 				UpdateHeader();
 				UpdateFooter();
 				UpdateIsSwipeToRefreshEnabled();
+				UpdateFastScrollEnabled();
+				UpdateSelectionMode();
+				UpdateSpinnerColor();
+				UpdateHorizontalScrollBarVisibility();
+				UpdateVerticalScrollBarVisibility();
 			}
+		}
+
+		internal void LongClickOn(AView viewCell)
+		{
+			if (Control == null)
+			{
+				return;
+			}
+
+			var position = Control.GetPositionForView(viewCell);
+			var id = Control.GetItemIdAtPosition(position);
+
+			viewCell.PerformHapticFeedback(FeedbackConstants.ContextClick);
+			_adapter.OnItemLongClick(Control, viewCell, position, id);
 		}
 
 		protected override void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -166,6 +221,16 @@ namespace Xamarin.Forms.Platform.Android
 				UpdateIsRefreshing();
 			else if (e.PropertyName == ListView.SeparatorColorProperty.PropertyName || e.PropertyName == ListView.SeparatorVisibilityProperty.PropertyName)
 				_adapter.NotifyDataSetChanged();
+			else if (e.PropertyName == PlatformConfiguration.AndroidSpecific.ListView.IsFastScrollEnabledProperty.PropertyName)
+				UpdateFastScrollEnabled();
+			else if (e.PropertyName == ListView.SelectionModeProperty.PropertyName)
+				UpdateSelectionMode();
+			else if (e.PropertyName == ListView.RefreshControlColorProperty.PropertyName)
+				UpdateSpinnerColor();
+			else if (e.PropertyName == ScrollView.HorizontalScrollBarVisibilityProperty.PropertyName)
+				UpdateHorizontalScrollBarVisibility();
+			else if (e.PropertyName == ScrollView.VerticalScrollBarVisibilityProperty.PropertyName)
+				UpdateVerticalScrollBarVisibility();
 		}
 
 		protected override void OnLayout(bool changed, int l, int t, int r, int b)
@@ -206,6 +271,9 @@ namespace Xamarin.Forms.Platform.Android
 			else
 			{
 				position = templatedItems.GetGlobalIndexOfItem(scrollArgs.Item);
+				if (position == -1)
+					return;
+
 				cell = templatedItems[position];
 			}
 
@@ -252,12 +320,18 @@ namespace Xamarin.Forms.Platform.Android
 		void UpdateFooter()
 		{
 			var footer = (VisualElement)Controller.FooterElement;
-			if (_footerRenderer != null && (footer == null || Registrar.Registered.GetHandlerType(footer.GetType()) != _footerRenderer.GetType()))
+			if (_footerRenderer != null)
 			{
-				if (_footerView != null)
-					_footerView.Child = null;
-				_footerRenderer.Dispose();
-				_footerRenderer = null;
+				var reflectableType = _footerRenderer as System.Reflection.IReflectableType;
+				var rendererType = reflectableType != null ? reflectableType.GetTypeInfo().AsType() : _footerRenderer.GetType();
+				if (footer == null || Registrar.Registered.GetHandlerTypeForObject(footer) != rendererType)
+				{
+					if (_footerView != null)
+						_footerView.Child = null;
+					Platform.ClearRenderer(_footerRenderer.View);
+					_footerRenderer.Dispose();
+					_footerRenderer = null;
+				}
 			}
 
 			if (footer == null)
@@ -267,7 +341,7 @@ namespace Xamarin.Forms.Platform.Android
 				_footerRenderer.SetElement(footer);
 			else
 			{
-				_footerRenderer = Platform.CreateRenderer(footer);
+				_footerRenderer = Platform.CreateRenderer(footer, Context);
 				if (_footerView != null)
 					_footerView.Child = _footerRenderer;
 			}
@@ -278,12 +352,18 @@ namespace Xamarin.Forms.Platform.Android
 		void UpdateHeader()
 		{
 			var header = (VisualElement)Controller.HeaderElement;
-			if (_headerRenderer != null && (header == null || Registrar.Registered.GetHandlerType(header.GetType()) != _headerRenderer.GetType()))
+			if (_headerRenderer != null)
 			{
-				if (_headerView != null)
-					_headerView.Child = null;
-				_headerRenderer.Dispose();
-				_headerRenderer = null;
+				var reflectableType = _headerRenderer as System.Reflection.IReflectableType;
+				var rendererType = reflectableType != null ? reflectableType.GetTypeInfo().AsType() : _headerRenderer.GetType();
+				if (header == null || Registrar.Registered.GetHandlerTypeForObject(header) != rendererType)
+				{
+					if (_headerView != null)
+						_headerView.Child = null;
+					Platform.ClearRenderer(_headerRenderer.View);
+					_headerRenderer.Dispose();
+					_headerRenderer = null;
+				}
 			}
 
 			if (header == null)
@@ -293,7 +373,7 @@ namespace Xamarin.Forms.Platform.Android
 				_headerRenderer.SetElement(header);
 			else
 			{
-				_headerRenderer = Platform.CreateRenderer(header);
+				_headerRenderer = Platform.CreateRenderer(header, Context);
 				if (_headerView != null)
 					_headerView.Child = _headerRenderer;
 			}
@@ -311,6 +391,9 @@ namespace Xamarin.Forms.Platform.Android
 					_refresh.Refreshing = false;
 					_refresh.Post(() =>
 					{
+					    if(_refresh.IsDisposed())
+						    return;
+						
 						_refresh.Refreshing = true;
 					});
 				}
@@ -325,9 +408,74 @@ namespace Xamarin.Forms.Platform.Android
 				_refresh.Enabled = Element.IsPullToRefreshEnabled && (Element as IListViewController).RefreshAllowed;
 		}
 
+		void UpdateFastScrollEnabled()
+		{
+			if (Control != null)
+			{
+				Control.FastScrollEnabled = Element.OnThisPlatform().IsFastScrollEnabled();
+			}
+		}
+
+		void UpdateSelectionMode()
+		{
+			if (Control != null)
+			{
+				if (Element.SelectionMode == ListViewSelectionMode.None)
+				{
+					Control.ChoiceMode = ChoiceMode.None;
+					Element.SelectedItem = null;
+				}
+				else if (Element.SelectionMode == ListViewSelectionMode.Single)
+				{
+					Control.ChoiceMode = ChoiceMode.Single;
+				}
+			}
+		}
+
+		void UpdateSpinnerColor()
+		{
+			if (_refresh != null)
+				_refresh.SetColorSchemeColors(Element.RefreshControlColor.ToAndroid());
+		}
+
+		void UpdateHorizontalScrollBarVisibility()
+		{
+			if (_defaultHorizontalScrollVisibility == 0)
+			{
+				_defaultHorizontalScrollVisibility = Control.HorizontalScrollBarEnabled ? ScrollBarVisibility.Always : ScrollBarVisibility.Never;
+			}
+
+			var newHorizontalScrollVisiblility = Element.HorizontalScrollBarVisibility;
+
+			if (newHorizontalScrollVisiblility == ScrollBarVisibility.Default)
+			{
+				newHorizontalScrollVisiblility = _defaultHorizontalScrollVisibility;
+			}
+
+			Control.HorizontalScrollBarEnabled = newHorizontalScrollVisiblility == ScrollBarVisibility.Always;
+		}
+
+		void UpdateVerticalScrollBarVisibility()
+		{
+			if (_defaultVerticalScrollVisibility == 0)
+				_defaultVerticalScrollVisibility = Control.VerticalScrollBarEnabled ? ScrollBarVisibility.Always : ScrollBarVisibility.Never;
+
+			var newVerticalScrollVisibility = Element.VerticalScrollBarVisibility;
+
+			if (newVerticalScrollVisibility == ScrollBarVisibility.Default)
+				newVerticalScrollVisibility = _defaultVerticalScrollVisibility;
+
+			Control.VerticalScrollBarEnabled = newVerticalScrollVisibility == ScrollBarVisibility.Always;
+		}
+		
 		internal class Container : ViewGroup
 		{
 			IVisualElementRenderer _child;
+
+			public Container(IntPtr p, global::Android.Runtime.JniHandleOwnership o) : base(p, o)
+			{
+				// Added default constructor to prevent crash when accessing header/footer row in ListViewAdapter.Dispose
+			}
 
 			public Container(Context context) : base(context)
 			{
@@ -338,12 +486,12 @@ namespace Xamarin.Forms.Platform.Android
 				set
 				{
 					if (_child != null)
-						RemoveView(_child.ViewGroup);
+						RemoveView(_child.View);
 
 					_child = value;
 
 					if (value != null)
-						AddView(value.ViewGroup);
+						AddView(value.View);
 				}
 			}
 
@@ -357,7 +505,7 @@ namespace Xamarin.Forms.Platform.Android
 
 			protected override void OnMeasure(int widthMeasureSpec, int heightMeasureSpec)
 			{
-				if (_child == null)
+				if (_child?.Element == null)
 				{
 					SetMeasuredDimension(0, 0);
 					return;
@@ -369,14 +517,63 @@ namespace Xamarin.Forms.Platform.Android
 
 				var width = (int)ctx.FromPixels(MeasureSpecFactory.GetSize(widthMeasureSpec));
 
-				SizeRequest request = _child.Element.Measure(width, double.PositiveInfinity, MeasureFlags.IncludeMargins);
-				Xamarin.Forms.Layout.LayoutChildIntoBoundingRegion(_child.Element, new Rectangle(0, 0, width, request.Request.Height));
+				SizeRequest request = element.Measure(width, double.PositiveInfinity, MeasureFlags.IncludeMargins);
+				Xamarin.Forms.Layout.LayoutChildIntoBoundingRegion(element, new Rectangle(0, 0, width, request.Request.Height));
 
 				int widthSpec = MeasureSpecFactory.MakeMeasureSpec((int)ctx.ToPixels(width), MeasureSpecMode.Exactly);
 				int heightSpec = MeasureSpecFactory.MakeMeasureSpec((int)ctx.ToPixels(request.Request.Height), MeasureSpecMode.Exactly);
 
-				_child.ViewGroup.Measure(widthMeasureSpec, heightMeasureSpec);
+				_child.View.Measure(widthMeasureSpec, heightMeasureSpec);
 				SetMeasuredDimension(widthSpec, heightSpec);
+			}
+		}
+
+		class SwipeRefreshLayoutWithFixedNestedScrolling : SwipeRefreshLayout
+		{
+			float _touchSlop;
+			float _initialDownY;
+			bool _nestedScrollAccepted;
+			bool _nestedScrollCalled;
+
+			public SwipeRefreshLayoutWithFixedNestedScrolling(Context ctx) : base(ctx)
+			{
+				_touchSlop = ViewConfiguration.Get(ctx).ScaledTouchSlop;
+			}
+
+			public override bool OnInterceptTouchEvent(MotionEvent ev)
+			{
+				if (ev.Action == MotionEventActions.Down)
+					_initialDownY = ev.GetAxisValue(Axis.Y);
+
+				var isBeingDragged = base.OnInterceptTouchEvent(ev);
+
+				if (!isBeingDragged && ev.Action == MotionEventActions.Move && _nestedScrollAccepted && !_nestedScrollCalled)
+				{
+					var y = ev.GetAxisValue(Axis.Y);
+					var dy = (y - _initialDownY) / 2;
+					isBeingDragged = dy > _touchSlop;
+				}
+
+				return isBeingDragged;
+			}
+
+			public override void OnNestedScrollAccepted(AView child, AView target, [GeneratedEnum] ScrollAxis axes)
+			{
+				base.OnNestedScrollAccepted(child, target, axes);
+				_nestedScrollAccepted = true;
+				_nestedScrollCalled = false;
+			}
+
+			public override void OnStopNestedScroll(AView child)
+			{
+				base.OnStopNestedScroll(child);
+				_nestedScrollAccepted = false;
+			}
+
+			public override void OnNestedScroll(AView target, int dxConsumed, int dyConsumed, int dxUnconsumed, int dyUnconsumed)
+			{
+				base.OnNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed);
+				_nestedScrollCalled = true;
 			}
 		}
 	}

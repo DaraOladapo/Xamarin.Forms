@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Xamarin.Forms.Internals;
 
 namespace Xamarin.Forms
 {
@@ -24,10 +25,7 @@ namespace Xamarin.Forms
 
 		public Style([TypeConverter(typeof(TypeTypeConverter))] [Parameter("TargetType")] Type targetType)
 		{
-			if (targetType == null)
-				throw new ArgumentNullException("targetType");
-
-			TargetType = targetType;
+			TargetType = targetType ?? throw new ArgumentNullException(nameof(targetType));
 			Setters = new List<Setter>();
 		}
 
@@ -156,7 +154,7 @@ namespace Xamarin.Forms
 
 		static void OnBasedOnResourceChanged(BindableObject bindable, object oldValue, object newValue)
 		{
-			Style style = (bindable as VisualElement).Style;
+			Style style = (bindable as IStyleElement).Style;
 			if (style == null)
 				return;
 			style.UnApplyCore(bindable, (Style)oldValue);

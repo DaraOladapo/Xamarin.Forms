@@ -1,7 +1,9 @@
 using System;
+using Android.Content;
 using Android.OS;
 using Android.Runtime;
 using Android.Views;
+using Xamarin.Forms.PlatformConfiguration.AndroidSpecific.AppCompat;
 using AView = Android.Views.View;
 using Fragment = Android.Support.V4.App.Fragment;
 
@@ -9,10 +11,9 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 {
 	internal class FragmentContainer : Fragment
 	{
-		readonly WeakReference _pageReference;
+		readonly WeakReference _pageRenderer;
 
 		Action<PageContainer> _onCreateCallback;
-		bool? _isVisible;
 		PageContainer _pageContainer;
 		IVisualElementRenderer _visualElementRenderer;
 
@@ -22,32 +23,16 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 
 		public FragmentContainer(Page page) : this()
 		{
-			_pageReference = new WeakReference(page);
+			_pageRenderer = new WeakReference(page);
 		}
 
 		protected FragmentContainer(IntPtr javaReference, JniHandleOwnership transfer) : base(javaReference, transfer)
 		{
 		}
 
-		public Page Page => (Page)_pageReference?.Target;
+		public virtual Page Page => (Page)_pageRenderer?.Target;
 
 		IPageController PageController => Page as IPageController;
-
-		public override bool UserVisibleHint
-		{
-			get { return base.UserVisibleHint; }
-			set
-			{
-				base.UserVisibleHint = value;
-				if (_isVisible == value)
-					return;
-				_isVisible = value;
-				if (_isVisible.Value)
-					PageController?.SendAppearing();
-				else
-					PageController?.SendDisappearing();
-			}
-		}
 
 		public static Fragment CreateInstance(Page page)
 		{
@@ -59,14 +44,19 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 			_onCreateCallback = callback;
 		}
 
+		protected virtual PageContainer CreatePageContainer (Context context, IVisualElementRenderer child, bool inFragment)
+		{
+			return new PageContainer(context, child, inFragment);
+		}
+
 		public override AView OnCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState)
 		{
 			if (Page != null)
 			{
-				_visualElementRenderer = Android.Platform.CreateRenderer(Page, ChildFragmentManager);
+				_visualElementRenderer = Android.Platform.CreateRenderer(Page, ChildFragmentManager, inflater.Context);
 				Android.Platform.SetRenderer(Page, _visualElementRenderer);
 
-				_pageContainer = new PageContainer(Forms.Context, _visualElementRenderer, true);
+				_pageContainer = CreatePageContainer(inflater.Context, _visualElementRenderer, true);
 
 				_onCreateCallback?.Invoke(_pageContainer);
 
@@ -82,9 +72,9 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 			{
 				if (_visualElementRenderer != null)
 				{
-					if (_visualElementRenderer.ViewGroup.Handle != IntPtr.Zero)
+					if (_visualElementRenderer.View.Handle != IntPtr.Zero)
 					{
-						_visualElementRenderer.ViewGroup.RemoveFromParent();
+						_visualElementRenderer.View.RemoveFromParent();
 					}
 
 					_visualElementRenderer.Dispose();
@@ -119,15 +109,35 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 
 		public override void OnPause()
 		{
-			PageController?.SendDisappearing();
+			bool shouldSendEvent = Application.Current.OnThisPlatform().GetSendDisappearingEventOnPause();
+			if (shouldSendEvent)
+				SendLifecycleEvent(false);
+
 			base.OnPause();
 		}
-		
+
 		public override void OnResume()
 		{
-			if (UserVisibleHint)
-				PageController?.SendAppearing();
+			bool shouldSendEvent = Application.Current.OnThisPlatform().GetSendAppearingEventOnResume();
+			if (shouldSendEvent)
+				SendLifecycleEvent(true);
+
 			base.OnResume();
+		}
+
+		void SendLifecycleEvent(bool isAppearing)
+		{
+			var masterDetailPage = Application.Current.MainPage as MasterDetailPage;
+			var pageContainer = (masterDetailPage != null ? masterDetailPage.Detail : Application.Current.MainPage) as IPageContainer<Page>;
+			Page currentPage = pageContainer?.CurrentPage;
+
+			if(!(currentPage == null || currentPage == PageController))
+				return;
+
+			if (isAppearing && UserVisibleHint)
+				PageController?.SendAppearing();
+			else if(!isAppearing)
+				PageController?.SendDisappearing();
 		}
 	}
 }

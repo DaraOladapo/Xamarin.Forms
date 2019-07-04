@@ -1,10 +1,12 @@
 using Android.Content;
+using Android.Support.V4.Widget;
+using Android.Graphics;
 using Android.Views;
 using Android.Widget;
 
 namespace Xamarin.Forms.Platform.Android
 {
-	public class AHorizontalScrollView : HorizontalScrollView
+	public class AHorizontalScrollView : HorizontalScrollView, IScrollView
 	{
 		readonly ScrollViewRenderer _renderer;
 
@@ -31,6 +33,14 @@ namespace Xamarin.Forms.Platform.Android
 
 		public override bool OnTouchEvent(MotionEvent ev)
 		{
+			// If the touch is caught by the horizontal scrollview, forward it to the parent so custom renderers can be notified of the touch.
+			var verticalScrollViewerRenderer = Parent as ScrollViewRenderer;
+			if (verticalScrollViewerRenderer != null)
+			{
+				verticalScrollViewerRenderer.ShouldSkipOnTouch = true;
+				verticalScrollViewerRenderer.OnTouchEvent(ev);
+			}
+
 			// The nested ScrollViews will allow us to scroll EITHER vertically OR horizontally in a single gesture.
 			// This will allow us to also scroll diagonally.
 			// We'll fall through to the base event so we still get the fling from the ScrollViews.
@@ -38,17 +48,18 @@ namespace Xamarin.Forms.Platform.Android
 			// on the initial direction of movement (i.e., horizontal/vertical).
 			if (IsBidirectional)
 			{
-				float dX = _renderer.LastX - ev.RawX;
 				float dY = _renderer.LastY - ev.RawY;
+
 				_renderer.LastY = ev.RawY;
 				_renderer.LastX = ev.RawX;
 				if (ev.Action == MotionEventActions.Move)
 				{
-					var parent = (global::Android.Widget.ScrollView)Parent;
+					var parent = (NestedScrollView)Parent;
 					parent.ScrollBy(0, (int)dY);
-					ScrollBy((int)dX, 0);
+					// Fall through to base.OnTouchEvent, it'll take care of the X scrolling 					
 				}
 			}
+
 			return base.OnTouchEvent(ev);
 		}
 
@@ -56,7 +67,39 @@ namespace Xamarin.Forms.Platform.Android
 		{
 			base.OnScrollChanged(l, t, oldl, oldt);
 
-			_renderer.UpdateScrollPosition(Forms.Context.FromPixels(l), Forms.Context.FromPixels(t));
+			_renderer.UpdateScrollPosition(Context.FromPixels(l), Context.FromPixels(t));
 		}
+
+		public override void Draw(Canvas canvas)
+		{
+			try
+			{
+				base.Draw(canvas);
+			}
+			catch (Java.Lang.NullPointerException)
+			{
+				// This will most likely never run since UpdateScrollBars is called 
+				// when the scrollbars visibilities are updated but I left it here
+				// just in case there's an edge case that causes an exception
+				this.HandleScrollBarVisibilityChange();
+			}
+		}
+
+		public override bool HorizontalScrollBarEnabled
+		{
+			get { return base.HorizontalScrollBarEnabled; }
+			set
+			{
+				base.HorizontalScrollBarEnabled = value;
+				this.HandleScrollBarVisibilityChange();
+			}
+		}
+
+		void IScrollView.AwakenScrollBars()
+		{
+			base.AwakenScrollBars();
+		}
+
+		bool IScrollView.ScrollBarsInitialized { get; set; } = false;
 	}
 }

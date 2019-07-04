@@ -13,7 +13,8 @@ namespace Xamarin.Forms.Build.Tasks
 			XmlName.xKey,
 			XmlName.xTypeArguments,
 			XmlName.xFactoryMethod,
-			XmlName.xName
+			XmlName.xName,
+			XmlName.xDataType
 		};
 
 		public ExpandMarkupsVisitor(ILContext context)
@@ -23,19 +24,17 @@ namespace Xamarin.Forms.Build.Tasks
 
 		ILContext Context { get; }
 
-		public bool VisitChildrenFirst
-		{
-			get { return true; }
-		}
+		public TreeVisitingMode VisitingMode => TreeVisitingMode.BottomUp;
+		public bool StopOnDataTemplate => false;
+		public bool StopOnResourceDictionary => false;
+		public bool VisitNodeOnDataTemplate => true;
+		public bool SkipChildren(INode node, INode parentNode) => false;
 
-		public bool StopOnDataTemplate
+		public bool IsResourceDictionary(ElementNode node)
 		{
-			get { return false; }
-		}
-
-		public bool StopOnResourceDictionary
-		{
-			get { return false; }
+			var parentVar = Context.Variables[(IElementNode)node];
+			return parentVar.VariableType.FullName == "Xamarin.Forms.ResourceDictionary"
+				|| parentVar.VariableType.Resolve().BaseType?.FullName == "Xamarin.Forms.ResourceDictionary";
 		}
 
 		public void Visit(ValueNode node, INode parentNode)
@@ -160,12 +159,14 @@ namespace Xamarin.Forms.Build.Tasks
 				}
 
 				var namespaceuri = nsResolver.LookupNamespace(prefix) ?? "";
+				if (!string.IsNullOrEmpty(prefix) && string.IsNullOrEmpty(namespaceuri))
+					throw new XamlParseException($"Undeclared xmlns prefix '{prefix}'", xmlLineInfo);
 				//The order of lookup is to look for the Extension-suffixed class name first and then look for the class name without the Extension suffix.
 				XmlType type;
 				try
 				{
 					type = new XmlType(namespaceuri, name + "Extension", null);
-					type.GetTypeReference(contextProvider.Context.Body.Method.Module, null);
+					type.GetTypeReference(contextProvider.Context.Module, null);
 				}
 				catch (XamlParseException)
 				{
@@ -195,13 +196,14 @@ namespace Xamarin.Forms.Build.Tasks
 
 			protected override void SetPropertyValue(string prop, string strValue, object value, IServiceProvider serviceProvider)
 			{
+				var nsResolver = serviceProvider.GetService(typeof(IXmlNamespaceResolver)) as IXmlNamespaceResolver;
 				if (prop != null)
 				{
 					var name = new XmlName(node.NamespaceURI, prop);
-					node.Properties[name] = value as INode ?? new ValueNode(strValue, null);
+					node.Properties[name] = value as INode ?? new ValueNode(strValue, nsResolver);
 				}
 				else //ContentProperty
-					node.CollectionItems.Add(value as INode ?? new ValueNode(strValue, null));
+					node.CollectionItems.Add(value as INode ?? new ValueNode(strValue, nsResolver));
 			}
 		}
 	}

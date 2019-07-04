@@ -8,7 +8,7 @@ using Xamarin.UITest;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve(AllMembers = true)]
 	[Issue(IssueTracker.Bugzilla, 41038, "MasterDetailPage loses menu icon on iOS after reusing NavigationPage as Detail")]
@@ -87,7 +87,7 @@ namespace Xamarin.Forms.Controls
 			RunningApp.WaitForElement("ViewB");
 			RunningApp.Tap("ViewB");
 			RunningApp.WaitForElement("Master");
-			RunningApp.Screenshot("I see the master toogle");
+			RunningApp.Screenshot("I see the master toggle");
 		}
 		#endif
 	}

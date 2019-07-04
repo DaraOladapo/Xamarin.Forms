@@ -1,10 +1,22 @@
+using System;
 using System.ComponentModel;
+using Android.Content;
+using Android.Content.Res;
+using Android.Graphics;
+using Android.OS;
 using AProgressBar = Android.Widget.ProgressBar;
 
 namespace Xamarin.Forms.Platform.Android
 {
 	public class ProgressBarRenderer : ViewRenderer<ProgressBar, AProgressBar>
 	{
+		public ProgressBarRenderer(Context context) : base(context)
+		{
+			AutoPackage = false;
+		}
+
+		[Obsolete("This constructor is obsolete as of version 2.5. Please use ProgressBarRenderer(Context) instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public ProgressBarRenderer()
 		{
 			AutoPackage = false;
@@ -19,14 +31,18 @@ namespace Xamarin.Forms.Platform.Android
 		{
 			base.OnElementChanged(e);
 
-			if (e.OldElement == null)
+			if (e.NewElement != null)
 			{
-				var progressBar = CreateNativeControl();
+				if (Control == null)
+				{
+					var progressBar = CreateNativeControl();
 
-				SetNativeControl(progressBar);
+					SetNativeControl(progressBar);
+				}
+
+				UpdateProgressColor();
+				UpdateProgress();
 			}
-
-			UpdateProgress();
 		}
 
 		protected override void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -35,6 +51,38 @@ namespace Xamarin.Forms.Platform.Android
 
 			if (e.PropertyName == ProgressBar.ProgressProperty.PropertyName)
 				UpdateProgress();
+			else if (e.PropertyName == ProgressBar.ProgressColorProperty.PropertyName)
+				UpdateProgressColor();
+		}
+
+		internal virtual protected void UpdateProgressColor()
+		{
+			if (Element == null || Control == null)
+				return;
+
+			Color color = Element.ProgressColor;
+
+			if (color.IsDefault)
+			{
+				(Control.Indeterminate ? Control.IndeterminateDrawable : 
+					Control.ProgressDrawable).ClearColorFilter();
+			}
+			else
+			{
+				if (Build.VERSION.SdkInt < BuildVersionCodes.Lollipop)
+				{
+					(Control.Indeterminate ? Control.IndeterminateDrawable :
+						Control.ProgressDrawable).SetColorFilter(color.ToAndroid(), PorterDuff.Mode.SrcIn);
+				}
+				else
+				{
+					var tintList = ColorStateList.ValueOf(color.ToAndroid());
+					if (Control.Indeterminate)
+						Control.IndeterminateTintList = tintList;
+					else
+						Control.ProgressTintList = tintList;
+				}
+			}
 		}
 
 		void UpdateProgress()

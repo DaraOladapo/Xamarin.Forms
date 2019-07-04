@@ -8,7 +8,7 @@ using NUnit.Framework;
 using Xamarin.UITest;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers=true)]
 	[Issue (IssueTracker.Github, 889, "Assigning to MasterDetailPage.Detail after construction doesn't work", PlatformAffected.Android | PlatformAffected.iOS)]
@@ -43,7 +43,7 @@ namespace Xamarin.Forms.Controls
 
 			var master = new ContentPage {
 				Title = "Master",
-				Icon = "bank.png",
+				IconImageSource = "bank.png",
 				Content = listView
 			};
 
@@ -114,8 +114,8 @@ namespace Xamarin.Forms.Controls
 				}
 			};
 
-			tabOne.SetValue (IconProperty, "bank.png");
-			tabTwo.SetValue (IconProperty, "coffee.png");
+			tabOne.SetValue (IconImageSourceProperty, "bank.png");
+			tabTwo.SetValue (IconImageSourceProperty, "coffee.png");
 			Children.Add (tabOne);
 			Children.Add (tabTwo);
 		}

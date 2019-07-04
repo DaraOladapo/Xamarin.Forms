@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Windows.Markup;
 using Microsoft.Windows.Design;
+using Xamarin.Forms.Internals;
 
 namespace Xamarin.Forms.Core.Design
 {
@@ -31,8 +32,16 @@ namespace Xamarin.Forms.Core.Design
 			foreach (var fontElement in fontElements) {
 				AddCallback (fontElement, builder => builder.AddCustomAttributes (
 					"FontSize",
-					new System.ComponentModel.TypeConverterAttribute (typeof (EnumConverter<NamedSize>))));
+					new System.ComponentModel.TypeConverterAttribute (typeof (NonExclusiveEnumConverter<NamedSize>))));
 			}
+
+			AddCallback(typeof(VisualElement), builder => builder.AddCustomAttributes(
+			   "Visual",
+			   new System.ComponentModel.TypeConverterAttribute(typeof(VisualDesignTypeConverter))));
+
+			AddCallback(typeof(ItemsView), builder => builder.AddCustomAttributes(
+				"ItemsLayout",
+			   new System.ComponentModel.TypeConverterAttribute(typeof(ItemsLayoutDesignTypeConverter))));
 
 			// TODO: OnPlatform/OnIdiom
 			// These two should be proper markup extensions, to follow WPF syntax for those.
@@ -41,7 +50,7 @@ namespace Xamarin.Forms.Core.Design
 			// the language service can find the type by its name. That class can be internal 
 			// though, since its visibility in the markup is controlled by the EditorBrowsableAttribute.
 			// Make OnPlatform/OnIdiom visible for intellisense, and set as markup extension. 
-			AddCallback (typeof (OnPlatform<>), builder => builder.AddCustomAttributes (new Attribute[] {
+			AddCallback(typeof (OnPlatform<>), builder => builder.AddCustomAttributes (new Attribute[] {
 				new EditorBrowsableAttribute (EditorBrowsableState.Always),
 				//new System.ComponentModel.TypeConverterAttribute(typeof(AnythingConverter)),
 				//new System.Windows.Markup.MarkupExtensionReturnTypeAttribute (),

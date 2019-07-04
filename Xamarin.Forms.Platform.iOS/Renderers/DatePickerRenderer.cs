@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using Foundation;
 using UIKit;
+using Xamarin.Forms.PlatformConfiguration.iOSSpecific;
 using RectangleF = CoreGraphics.CGRect;
 
 namespace Xamarin.Forms.Platform.iOS
@@ -10,6 +11,9 @@ namespace Xamarin.Forms.Platform.iOS
 	{
 		public NoCaretField() : base(new RectangleF())
 		{
+			SpellCheckingType = UITextSpellCheckingType.No;
+			AutocorrectionType = UITextAutocorrectionType.No;
+			AutocapitalizationType = UITextAutocapitalizationType.None;
 		}
 
 		public override RectangleF GetCaretRectForPosition(UITextPosition position)
@@ -18,20 +22,37 @@ namespace Xamarin.Forms.Platform.iOS
 		}
 	}
 
-	public class DatePickerRenderer : ViewRenderer<DatePicker, UITextField>
+	public class DatePickerRenderer : DatePickerRendererBase<UITextField>
+	{
+		protected override UITextField CreateNativeControl()
+		{
+			return new NoCaretField { BorderStyle = UITextBorderStyle.RoundedRect };
+		}
+	}
+
+	public abstract class DatePickerRendererBase<TControl> : ViewRenderer<DatePicker, TControl>
+		where TControl : UITextField
 	{
 		UIDatePicker _picker;
 		UIColor _defaultTextColor;
+		bool _disposed;
+		bool _useLegacyColorManagement;
 
 		IElementController ElementController => Element as IElementController;
+
+
+		abstract protected override TControl CreateNativeControl();
 
 		protected override void OnElementChanged(ElementChangedEventArgs<DatePicker> e)
 		{
 			base.OnElementChanged(e);
 
-			if (e.OldElement == null)
+			if (e.NewElement == null)
+				return;
+
+			if (Control == null)
 			{
-				var entry = new NoCaretField { BorderStyle = UITextBorderStyle.RoundedRect };
+				var entry = CreateNativeControl();
 
 				entry.EditingDidBegin += OnStarted;
 				entry.EditingDidEnd += OnEnded;
@@ -50,18 +71,25 @@ namespace Xamarin.Forms.Platform.iOS
 				entry.InputView = _picker;
 				entry.InputAccessoryView = toolbar;
 
+				entry.InputView.AutoresizingMask = UIViewAutoresizing.FlexibleHeight;
+				entry.InputAccessoryView.AutoresizingMask = UIViewAutoresizing.FlexibleHeight;
+				
+				entry.InputAssistantItem.LeadingBarButtonGroups = null;
+				entry.InputAssistantItem.TrailingBarButtonGroups = null;
+
 				_defaultTextColor = entry.TextColor;
+
+				_useLegacyColorManagement = e.NewElement.UseLegacyColorManagement();
 
 				SetNativeControl(entry);
 			}
 
-			if (e.NewElement != null)
-			{
-				UpdateDateFromModel(false);
-				UpdateMaximumDate();
-				UpdateMinimumDate();
-				UpdateTextColor();
-			}
+			UpdateDateFromModel(false);
+			UpdateFont();
+			UpdateMaximumDate();
+			UpdateMinimumDate();
+			UpdateTextColor();
+			UpdateFlowDirection();
 		}
 
 		protected override void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -76,6 +104,10 @@ namespace Xamarin.Forms.Platform.iOS
 				UpdateMaximumDate();
 			else if (e.PropertyName == DatePicker.TextColorProperty.PropertyName || e.PropertyName == VisualElement.IsEnabledProperty.PropertyName)
 				UpdateTextColor();
+			else if (e.PropertyName == VisualElement.FlowDirectionProperty.PropertyName)
+				UpdateFlowDirection();
+			else if (e.PropertyName == DatePicker.FontAttributesProperty.PropertyName || e.PropertyName == DatePicker.FontFamilyProperty.PropertyName || e.PropertyName == DatePicker.FontSizeProperty.PropertyName)
+				UpdateFont();
 		}
 
 		void HandleValueChanged(object sender, EventArgs e)
@@ -101,6 +133,16 @@ namespace Xamarin.Forms.Platform.iOS
 			Control.Text = Element.Date.ToString(Element.Format);
 		}
 
+		void UpdateFlowDirection()
+		{
+			(Control as UITextField).UpdateTextAlignment(Element);
+		}
+		
+		protected internal virtual void UpdateFont()
+		{
+			Control.Font = Element.ToUIFont();
+		}
+
 		void UpdateMaximumDate()
 		{
 			_picker.MaximumDate = Element.MaximumDate.ToNSDate();
@@ -111,14 +153,46 @@ namespace Xamarin.Forms.Platform.iOS
 			_picker.MinimumDate = Element.MinimumDate.ToNSDate();
 		}
 
-		void UpdateTextColor()
+		protected internal virtual void UpdateTextColor()
 		{
 			var textColor = Element.TextColor;
 
-			if (textColor.IsDefault || !Element.IsEnabled)
+			if (textColor.IsDefault || (!Element.IsEnabled && _useLegacyColorManagement))
 				Control.TextColor = _defaultTextColor;
 			else
 				Control.TextColor = textColor.ToUIColor();
+
+			// HACK This forces the color to update; there's probably a more elegant way to make this happen
+			Control.Text = Control.Text;
+		}
+
+		protected override void Dispose(bool disposing)
+		{
+			if (_disposed)
+				return;
+
+			_disposed = true;
+
+			if (disposing)
+			{
+				_defaultTextColor = null;
+
+				if (_picker != null)
+				{
+					_picker.RemoveFromSuperview();
+					_picker.ValueChanged -= HandleValueChanged;
+					_picker.Dispose();
+					_picker = null;
+				}
+
+				if (Control != null)
+				{
+					Control.EditingDidBegin -= OnStarted;
+					Control.EditingDidEnd -= OnEnded;
+				}
+			}
+
+			base.Dispose(disposing);
 		}
 	}
 }

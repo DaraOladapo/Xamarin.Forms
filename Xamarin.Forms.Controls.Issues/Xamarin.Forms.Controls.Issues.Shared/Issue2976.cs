@@ -9,7 +9,7 @@ using Xamarin.UITest;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers = true)]
 	[Issue (IssueTracker.Github, 2976, "Sample 'WorkingWithListviewNative' throw Exception on Xam.Android project.", PlatformAffected.Android)]
@@ -19,16 +19,16 @@ namespace Xamarin.Forms.Controls
 		{
 
 			// built-in Xamarin.Forms controls
-			Children.Add (new XamarinFormsPage {Title = "DEMOA", Icon = "bank.png"});
+			Children.Add (new XamarinFormsPage {Title = "DEMOA", IconImageSource = "bank.png"});
 
 			// custom renderer for the list, using a native built-in cell type
-			Children.Add (new NativeListPage {Title = "DEMOB", Icon = "bank.png"});
+			Children.Add (new NativeListPage {Title = "DEMOB", IconImageSource = "bank.png"});
 
 			// built in Xamarin.Forms list, but with a native cell custom-renderer
-			Children.Add (new XamarinFormsNativeCellPage {Title = "DEMOC", Icon = "bank.png"});
+			Children.Add (new XamarinFormsNativeCellPage {Title = "DEMOC", IconImageSource = "bank.png"});
 
 			// custom renderer for the list, using a native cell that has been custom-defined in native code
-			Children.Add (new NativeListViewPage2 {Title = "DEMOD", Icon = "bank.png"});
+			Children.Add (new NativeListViewPage2 {Title = "DEMOD", IconImageSource = "bank.png"});
 		}
 
 #if UITEST
@@ -73,15 +73,15 @@ namespace Xamarin.Forms.Controls
 
 			// The root page of your application
 			Content = new StackLayout {
-				Padding = new Thickness (0, Device.OnPlatform(20,0,0), 0, 0),
+				Padding = Device.RuntimePlatform == Device.iOS ? new Thickness(0, 20, 0, 0) : new Thickness(0),
 				Children = {
 					new Label {
 #pragma warning disable 618
 						XAlign = TextAlignment.Center,
 #pragma warning restore 618
-						Text = Device.OnPlatform("Custom renderer UITableView","Custom renderer ListView","Custom renderer todo")
+						Text = Device.RuntimePlatform == Device.iOS ? "Custom renderer UITableView" : Device.RuntimePlatform == Device.Android ? "Custom renderer ListView" : "Custom renderer todo"
 					},
-					fasterListView 
+					fasterListView
 				}
 			};
 		}
@@ -106,7 +106,7 @@ namespace Xamarin.Forms.Controls
 		public void NotifyItemSelected (object item) {
 
 			if (ItemSelected != null)
-				ItemSelected (this, new SelectedItemChangedEventArgs (item));
+				ItemSelected (this, new SelectedItemChangedEventArgs (item, Items?.IndexOf(item) ?? -1));
 		}
 
 		public NativeListView ()
@@ -143,7 +143,7 @@ namespace Xamarin.Forms.Controls
 			};
 
 			Content = new StackLayout { 
-				Padding = new Thickness (5, Device.OnPlatform(20,0,0), 5, 0),
+				Padding = Device.RuntimePlatform == Device.iOS ? new Thickness(5, 20, 5, 0) : new Thickness(5,0),
 				Children = {
 					new Label {
 #pragma warning disable 618
@@ -185,7 +185,7 @@ namespace Xamarin.Forms.Controls
 			};
 
 			Content = new StackLayout { 
-				Padding = new Thickness (0, Device.OnPlatform(20,0,0), 0, 0),
+				Padding = Device.RuntimePlatform == Device.iOS ? new Thickness(0, 20, 0, 0) : new Thickness(0),
 				Children = {
 					new Label {
 #pragma warning disable 618
@@ -250,7 +250,7 @@ namespace Xamarin.Forms.Controls
 			b.Clicked += (sender, e) => Navigation.PopModalAsync();
 
 			Content = new StackLayout { 
-				Padding = new Thickness (0, Device.OnPlatform(20,0,0), 0, 0),
+				Padding = Device.RuntimePlatform == Device.iOS ? new Thickness(0, 20, 0, 0) : new Thickness(0),
 				HorizontalOptions = LayoutOptions.Center,
 				VerticalOptions =  LayoutOptions.Center,
 				Children = {
@@ -289,13 +289,13 @@ namespace Xamarin.Forms.Controls
 
 			// The root page of your application
 			Content = new StackLayout {
-				Padding = new Thickness (0, Device.OnPlatform(20,0,0), 0, 0),
+				Padding = Device.RuntimePlatform == Device.iOS ? new Thickness(0, 20, 0, 0) : new Thickness(0),
 				Children = {
 					new Label {
 #pragma warning disable 618
 						XAlign = TextAlignment.Center,
 #pragma warning restore 618
-						Text = Device.OnPlatform("Custom UITableView+UICell","Custom ListView+Cell","Custom renderer todo")
+						Text = Device.RuntimePlatform == Device.iOS ? "Custom UITableView+UICell" : Device.RuntimePlatform == Device.Android ? "Custom ListView+Cell" : "Custom renderer todo"
 					},
 					nativeListView2
 				}
@@ -322,7 +322,7 @@ namespace Xamarin.Forms.Controls
 		public void NotifyItemSelected (object item) {
 
 			if (ItemSelected != null)
-				ItemSelected (this, new SelectedItemChangedEventArgs (item));
+				ItemSelected (this, new SelectedItemChangedEventArgs (item, Items?.IndexOf(item) ?? -1));
 		}
 
 		public NativeListView2 ()

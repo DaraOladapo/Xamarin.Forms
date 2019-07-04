@@ -5,6 +5,7 @@ using Xamarin.Forms.CustomAttributes;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Xamarin.Forms.Internals;
+using System.Threading.Tasks;
 
 #if UITEST
 using Xamarin.UITest.Queries;
@@ -12,17 +13,31 @@ using NUnit.Framework;
 #endif
 
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
+#if UITEST
+	[NUnit.Framework.Category(Core.UITests.UITestCategories.UwpIgnore)]
+#endif
 	[Preserve (AllMembers = true)]
 	[Issue (IssueTracker.Github, 2951, "On Android, button background is not updated when color changes ")]
 	public partial class Issue2951 : TestContentPage
 	{
 		public Issue2951 ()
 		{
-			#if APP
+#if APP
 			InitializeComponent ();
-			#endif
+#endif
+		}
+
+		async void ListView_ItemAppearing(object sender, ItemVisibilityEventArgs e)
+		{
+			if(e.ItemIndex == 2)
+			{
+				await Task.Delay(10);
+#if APP
+				lblReady.Text = "Ready";
+#endif
+			}
 		}
 
 		protected override void Init ()
@@ -90,11 +105,12 @@ namespace Xamarin.Forms.Controls
 				}
 			}
 		}
-	
-		#if UITEST
+
+#if UITEST
 		[Test]
 		public void Issue2951Test ()
 		{
+			RunningApp.WaitForElement("Ready");
 			var bt = RunningApp.WaitForElement (c => c.Marked ("btnChangeStatus"));
 			var buttons = RunningApp.Query (c => c.Marked ("btnChangeStatus"));
 			Assert.That (buttons.Length, Is.EqualTo (3));
@@ -111,34 +127,34 @@ namespace Xamarin.Forms.Controls
 		}
 
 	
-		#endif
+#endif
 	}
+}
 
-
-	
-
-	[Preserve (AllMembers = true)]
+namespace Xamarin.Forms.Controls.Issues
+{
+	[Preserve(AllMembers = true)]
 	public class ButtonExtensions
 	{
 #pragma warning disable 618
-		public static readonly BindableProperty IsPrimaryProperty = BindableProperty.CreateAttached<ButtonExtensions, bool> (
+		public static readonly BindableProperty IsPrimaryProperty = BindableProperty.CreateAttached<ButtonExtensions, bool>(
 #pragma warning restore 618
-			                                                            bindable => GetIsPrimary (bindable),
-			                                                            false,
-			                                                            BindingMode.TwoWay,
-			                                                            null,
-			                                                            null,
-			                                                            null,
-			                                                            null);
+																		bindable => GetIsPrimary(bindable),
+																		false,
+																		BindingMode.TwoWay,
+																		null,
+																		null,
+																		null,
+																		null);
 
-		public static bool GetIsPrimary (BindableObject bo)
+		public static bool GetIsPrimary(BindableObject bo)
 		{
-			return (bool)bo.GetValue (IsPrimaryProperty);
+			return (bool)bo.GetValue(IsPrimaryProperty);
 		}
 
-		public static void SetIsPrimary (BindableObject bo, bool value)
+		public static void SetIsPrimary(BindableObject bo, bool value)
 		{
-			bo.SetValue (IsPrimaryProperty, value);
+			bo.SetValue(IsPrimaryProperty, value);
 		}
 	}
 }

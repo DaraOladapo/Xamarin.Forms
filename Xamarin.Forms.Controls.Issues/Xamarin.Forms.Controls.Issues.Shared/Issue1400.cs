@@ -7,7 +7,7 @@ using System.Linq;
 using Xamarin.Forms.CustomAttributes;
 using Xamarin.Forms.Internals;
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers=true)]
 	[Issue (IssueTracker.Github, 1400, "Group binding errors", PlatformAffected.Android | PlatformAffected.iOS | PlatformAffected.WinPhone, NavigationBehavior.PushModalAsync)]
@@ -30,7 +30,7 @@ namespace Xamarin.Forms.Controls
             Editfield = new Entry();
             Editfield.HorizontalOptions = LayoutOptions.FillAndExpand;
             Editfield.BindingContext = Data.First().First();
-            Editfield.SetBinding<MyData>(Entry.TextProperty, f => f.Title);
+            Editfield.SetBinding(Entry.TextProperty, "Title");
 
             Editfield.TextChanged += (sender, args) =>
             {
@@ -88,8 +88,8 @@ namespace Xamarin.Forms.Controls
             List.ItemsSource = newlist;
         }
     }
-
-    public class MyData : INotifyPropertyChanged
+	[Preserve(AllMembers = true)]
+	public class MyData : INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -113,8 +113,8 @@ namespace Xamarin.Forms.Controls
             if (PropertyChanged != null) PropertyChanged(this, e);
         }
     }
-
-    public class MyGroup : ObservableCollection<MyData>, INotifyPropertyChanged
+	[Preserve(AllMembers = true)]
+	public class MyGroup : ObservableCollection<MyData>, INotifyPropertyChanged
     {
 	    string _headertitle;
 
@@ -131,23 +131,23 @@ namespace Xamarin.Forms.Controls
             }
         }
     }
-
+	[Preserve(AllMembers = true)]
 	internal class VCTest : ViewCell
     {
         public VCTest()
         {
             var label = new Label();
-            label.SetBinding<MyData>(Label.TextProperty, f => f.Title);
+            label.SetBinding(Label.TextProperty, "Title");
             View = label;
         }
     }
-
+	[Preserve(AllMembers = true)]
 	internal class VCHeader : ViewCell
     {
         public VCHeader()
         {
             var label = new Label();
-            label.SetBinding<MyGroup>(Label.TextProperty, f => f.Headertitle);
+            label.SetBinding(Label.TextProperty, "Headertitle");
             View = label;
         }
     }

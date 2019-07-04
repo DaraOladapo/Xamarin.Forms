@@ -5,9 +5,9 @@ using Xamarin.Forms.Xaml.Internals;
 
 namespace Xamarin.Forms.Xaml
 {
-	internal class ExpandMarkupsVisitor : IXamlNodeVisitor
+	class ExpandMarkupsVisitor : IXamlNodeVisitor
 	{
-		public ExpandMarkupsVisitor(HydratationContext context)
+		public ExpandMarkupsVisitor(HydrationContext context)
 		{
 			Context = context;
 		}
@@ -17,7 +17,8 @@ namespace Xamarin.Forms.Xaml
 			XmlName.xKey,
 			XmlName.xTypeArguments,
 			XmlName.xFactoryMethod,
-			XmlName.xName
+			XmlName.xName,
+			XmlName.xDataType
 		};
 
 		Dictionary<INode, object> Values
@@ -25,22 +26,14 @@ namespace Xamarin.Forms.Xaml
 			get { return Context.Values; }
 		}
 
-		HydratationContext Context { get; }
+		HydrationContext Context { get; }
 
-		public bool VisitChildrenFirst
-		{
-			get { return true; }
-		}
-
-		public bool StopOnDataTemplate
-		{
-			get { return false; }
-		}
-
-		public bool StopOnResourceDictionary
-		{
-			get { return false; }
-		}
+		public TreeVisitingMode VisitingMode => TreeVisitingMode.BottomUp;
+		public bool StopOnDataTemplate => false;
+		public bool StopOnResourceDictionary => false;
+		public bool VisitNodeOnDataTemplate => true;
+		public bool SkipChildren(INode node, INode parentNode) => false;
+		public bool IsResourceDictionary(ElementNode node) => false;
 
 		public void Visit(ValueNode node, INode parentNode)
 		{
@@ -85,27 +78,38 @@ namespace Xamarin.Forms.Xaml
 			if (expression.StartsWith("{}", StringComparison.Ordinal))
 				return new ValueNode(expression.Substring(2), null);
 
-			if (expression[expression.Length - 1] != '}')
-				throw new Exception("Expression must end with '}'");
+			if (expression[expression.Length - 1] != '}') {
+				var ex = new XamlParseException("Expression must end with '}'", xmlLineInfo);
+				if (Context.ExceptionHandler != null) {
+					Context.ExceptionHandler(ex);
+					return null;
+				}
+				throw ex;
+			}
 
-			int len;
-			string match;
-			if (!MarkupExpressionParser.MatchMarkup(out match, expression, out len))
+			if (!MarkupExpressionParser.MatchMarkup(out var match, expression, out var len))
 				throw new Exception();
-			expression = expression.Substring(len).TrimStart();
-			if (expression.Length == 0)
-				throw new Exception("Expression did not end in '}'");
 
+			expression = expression.Substring(len).TrimStart();
+			if (expression.Length == 0) {
+				var ex = new XamlParseException("Expression did not end in '}'", xmlLineInfo);
+				if (Context.ExceptionHandler != null)
+				{
+					Context.ExceptionHandler(ex);
+					return null;
+				}
+				throw ex;
+			}
 			var serviceProvider = new XamlServiceProvider(node, Context);
 			serviceProvider.Add(typeof (IXmlNamespaceResolver), nsResolver);
 
-			return new MarkupExpansionParser().Parse(match, ref expression, serviceProvider);
+			return new MarkupExpansionParser { ExceptionHandler = Context.ExceptionHandler}.Parse(match, ref expression, serviceProvider);
 		}
 
 		public class MarkupExpansionParser : MarkupExpressionParser, IExpressionParser<INode>
 		{
 			IElementNode node;
-
+			internal Action<Exception> ExceptionHandler { get; set; }
 			object IExpressionParser.Parse(string match, ref string remaining, IServiceProvider serviceProvider)
 			{
 				return Parse(match, ref remaining, serviceProvider);
@@ -144,11 +148,13 @@ namespace Xamarin.Forms.Xaml
 				else
 				{
 					//The order of lookup is to look for the Extension-suffixed class name first and then look for the class name without the Extension suffix.
-					if (!typeResolver.TryResolve(match + "Extension", out type) && !typeResolver.TryResolve(match, out type))
-					{
-						var lineInfoProvider = serviceProvider.GetService(typeof (IXmlLineInfoProvider)) as IXmlLineInfoProvider;
-						var lineInfo = (lineInfoProvider != null) ? lineInfoProvider.XmlLineInfo : new XmlLineInfo();
-						throw new XamlParseException(String.Format("MarkupExtension not found for {0}", match), lineInfo);
+					if (!typeResolver.TryResolve(match + "Extension", out type) && !typeResolver.TryResolve(match, out type)) {
+						var ex = new XamlParseException($"MarkupExtension not found for {match}", serviceProvider);
+						if (ExceptionHandler != null) {
+							ExceptionHandler(ex);
+							return null;
+						}
+						throw ex;
 					}
 				}
 

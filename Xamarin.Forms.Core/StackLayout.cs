@@ -1,9 +1,10 @@
 using System;
+using System.ComponentModel;
 using Xamarin.Forms.Internals;
 
 namespace Xamarin.Forms
 {
-	public class StackLayout : Layout<View>
+	public class StackLayout : Layout<View>, IElementConfiguration<StackLayout>
 	{
 		public static readonly BindableProperty OrientationProperty = BindableProperty.Create("Orientation", typeof(StackOrientation), typeof(StackLayout), StackOrientation.Vertical,
 			propertyChanged: (bindable, oldvalue, newvalue) => ((StackLayout)bindable).InvalidateLayout());
@@ -12,6 +13,18 @@ namespace Xamarin.Forms
 			propertyChanged: (bindable, oldvalue, newvalue) => ((StackLayout)bindable).InvalidateLayout());
 
 		LayoutInformation _layoutInformation = new LayoutInformation();
+		readonly Lazy<PlatformConfigurationRegistry<StackLayout>> _platformConfigurationRegistry;
+
+		public StackLayout()
+		{
+			_platformConfigurationRegistry = new Lazy<PlatformConfigurationRegistry<StackLayout>>(() => 
+				new PlatformConfigurationRegistry<StackLayout>(this));
+		}
+
+		public IPlatformElementConfiguration<T, StackLayout> On<T>() where T : IConfigPlatform
+		{
+			return _platformConfigurationRegistry.Value.On<T>();
+		}
 
 		public StackOrientation Orientation
 		{
@@ -32,19 +45,18 @@ namespace Xamarin.Forms
 				return;
 			}
 
-			if (width == _layoutInformation.Constraint.Width && height == _layoutInformation.Constraint.Height)
+			LayoutInformation layoutInformationCopy = _layoutInformation;
+			if (width == layoutInformationCopy.Constraint.Width && height == layoutInformationCopy.Constraint.Height)
 			{
 				StackOrientation orientation = Orientation;
 
-				AlignOffAxis(_layoutInformation, orientation, width, height);
-				ProcessExpanders(_layoutInformation, orientation, x, y, width, height);
+				AlignOffAxis(layoutInformationCopy, orientation, width, height);
+				ProcessExpanders(layoutInformationCopy, orientation, x, y, width, height);
 			}
 			else
 			{
-				CalculateLayout(_layoutInformation, x, y, width, height, true);
+				CalculateLayout(layoutInformationCopy, x, y, width, height, true);
 			}
-
-			LayoutInformation layoutInformationCopy = _layoutInformation;
 
 			for (var i = 0; i < LogicalChildrenInternal.Count; i++)
 			{
@@ -54,7 +66,8 @@ namespace Xamarin.Forms
 			}
 		}
 
-		[Obsolete("Use OnMeasure")]
+		[Obsolete("OnSizeRequest is obsolete as of version 2.2.0. Please use OnMeasure instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		protected override SizeRequest OnSizeRequest(double widthConstraint, double heightConstraint)
 		{
 			if (!HasVisibileChildren())

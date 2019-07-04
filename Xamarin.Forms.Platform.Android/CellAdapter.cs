@@ -8,6 +8,9 @@ using Android.Views;
 using Android.Widget;
 using AView = Android.Views.View;
 using AListView = Android.Widget.ListView;
+using Android.Graphics.Drawables;
+using Android.Support.V7.App;
+using AActionMode = global::Android.Support.V7.View.ActionMode;
 
 namespace Xamarin.Forms.Platform.Android
 {
@@ -20,7 +23,7 @@ namespace Xamarin.Forms.Platform.Android
 
 		bool _actionModeNeedsUpdates;
 		AView _contextView;
-		global::Android.Support.V7.View.ActionMode _supportActionMode;
+		AActionMode _supportActionMode;
 
 		protected CellAdapter(Context context)
 		{
@@ -80,6 +83,7 @@ namespace Xamarin.Forms.Platform.Android
 
 		public bool OnActionItemClicked(ActionMode mode, IMenuItem item)
 		{
+			mode.Menu.Clear();
 			OnActionItemClickedImpl(item);
 			_actionMode?.Finish();
 			return true;
@@ -87,8 +91,8 @@ namespace Xamarin.Forms.Platform.Android
 
 		bool global::Android.Support.V7.View.ActionMode.ICallback.OnActionItemClicked(global::Android.Support.V7.View.ActionMode mode, IMenuItem item)
 		{
+			mode.Menu.Clear();
 			OnActionItemClickedImpl(item);
-
 			_supportActionMode?.Finish();
 			return true;
 		}
@@ -173,12 +177,10 @@ namespace Xamarin.Forms.Platform.Android
 			view.SetBackgroundResource(0);
 		}
 
-		internal void CloseContextAction()
+		internal void CloseContextActions()
 		{
-			if (_actionMode != null)
-				_actionMode.Finish();
-			if (_supportActionMode != null)
-				_supportActionMode.Finish();
+			_actionMode?.Finish();
+			_supportActionMode?.Finish();
 		}
 
 		void CreateContextMenu(IMenu menu)
@@ -191,10 +193,16 @@ namespace Xamarin.Forms.Platform.Android
 			{
 				MenuItem action = ActionModeContext.ContextActions[i];
 
-				IMenuItem item = menu.Add(Menu.None, i, Menu.None, action.Text);
+				IMenuItem item = menu.Add(global::Android.Views.Menu.None, i,global::Android.Views.Menu.None, action.Text);
 
-				if (action.Icon != null)
-					item.SetIcon(_context.Resources.GetDrawable(action.Icon));
+				_ = _context.ApplyDrawableAsync(action, MenuItem.IconImageSourceProperty, iconDrawable =>
+				{
+					if (iconDrawable != null && !this.IsDisposed() && !_actionModeNeedsUpdates)
+					{
+						item.SetIcon(iconDrawable);
+						item.SetTitleOrContentDescription(action);
+					}
+				});
 
 				action.PropertyChanged += changed;
 				action.PropertyChanging += changing;
@@ -209,6 +217,9 @@ namespace Xamarin.Forms.Platform.Android
 
 		bool HandleContextMode(AView view, int position)
 		{
+			if (view is EditText || view is TextView || view is SearchView)
+				return false;
+
 			Cell cell = GetCellForPosition(position);
 
 			if (cell == null)
@@ -218,8 +229,7 @@ namespace Xamarin.Forms.Platform.Android
 			{
 				if (!cell.HasContextActions)
 				{
-					_actionMode?.Finish();
-					_supportActionMode?.Finish();
+					CloseContextActions();
 					return false;
 				}
 
@@ -235,9 +245,9 @@ namespace Xamarin.Forms.Platform.Android
 
 				ActionModeContext = cell;
 
-				var appCompatActivity = Forms.Context as FormsAppCompatActivity;
+				var appCompatActivity = view.Context as AppCompatActivity;
 				if (appCompatActivity == null)
-					_actionMode = ((Activity)Forms.Context).StartActionMode(this);
+					_actionMode = view.Context.GetActivity().StartActionMode(this);
 				else
 					_supportActionMode = appCompatActivity.StartSupportActionMode(this);
 			}
@@ -258,7 +268,8 @@ namespace Xamarin.Forms.Platform.Android
 		void OnContextActionCommandCanExecuteChanged(object sender, EventArgs eventArgs)
 		{
 			_actionModeNeedsUpdates = true;
-			_actionMode.Invalidate();
+			_actionMode?.Invalidate();
+			_supportActionMode?.Invalidate();
 		}
 
 		void OnContextActionPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -288,7 +299,8 @@ namespace Xamarin.Forms.Platform.Android
 		void OnContextItemsChanged(object sender, NotifyCollectionChangedEventArgs e)
 		{
 			_actionModeNeedsUpdates = true;
-			_actionMode.Invalidate();
+			_actionMode?.Invalidate();
+			_supportActionMode?.Invalidate();
 		}
 
 		void OnDestroyActionModeImpl()

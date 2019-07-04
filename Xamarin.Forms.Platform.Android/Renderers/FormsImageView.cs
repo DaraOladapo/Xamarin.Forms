@@ -5,7 +5,7 @@ using Android.Widget;
 
 namespace Xamarin.Forms.Platform.Android
 {
-	internal class FormsImageView : ImageView
+	internal class FormsImageView : ImageView, IImageRendererController
 	{
 		bool _skipInvalidate;
 
@@ -32,5 +32,7 @@ namespace Xamarin.Forms.Platform.Android
 		{
 			_skipInvalidate = true;
 		}
+
+		bool IImageRendererController.IsDisposed => false;
 	}
 }

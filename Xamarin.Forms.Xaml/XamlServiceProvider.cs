@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Reflection;
 using System.Xml;
 using Xamarin.Forms.Internals;
@@ -10,27 +11,21 @@ namespace Xamarin.Forms.Xaml.Internals
 	{
 		readonly Dictionary<Type, object> services = new Dictionary<Type, object>();
 
-		internal XamlServiceProvider(INode node, HydratationContext context)
+		internal XamlServiceProvider(INode node, HydrationContext context)
 		{
-			object targetObject;
-			if (node != null && node.Parent != null && context.Values.TryGetValue(node.Parent, out targetObject))
+			if (context != null && node != null && node.Parent != null && context.Values.TryGetValue(node.Parent, out object targetObject))
 				IProvideValueTarget = new XamlValueTargetProvider(targetObject, node, context, null);
 			if (context != null)
 				IRootObjectProvider = new XamlRootObjectProvider(context.RootElement);
-			if (node != null)
+			if (context != null && node != null)
 			{
 				IXamlTypeResolver = new XamlTypeResolver(node.NamespaceResolver, XamlParser.GetElementType,
 					context.RootElement.GetType().GetTypeInfo().Assembly);
 
-				var enode = node;
-				while (enode != null && !(enode is IElementNode))
-					enode = enode.Parent;
-				if (enode != null)
-					INameScopeProvider = new NameScopeProvider { NameScope = (enode as IElementNode).Namescope };
+				Add(typeof(IReferenceProvider), new ReferenceProvider(node));
 			}
 
-			var xmlLineInfo = node as IXmlLineInfo;
-			if (xmlLineInfo != null)
+			if (node is IXmlLineInfo xmlLineInfo)
 				IXmlLineInfoProvider = new XmlLineInfoProvider(xmlLineInfo);
 
 			IValueConverterProvider = new ValueConverterProvider();
@@ -65,6 +60,8 @@ namespace Xamarin.Forms.Xaml.Internals
 			set { services[typeof (IXmlLineInfoProvider)] = value; }
 		}
 
+		[Obsolete]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		internal INameScopeProvider INameScopeProvider
 		{
 			get { return (INameScopeProvider)GetService(typeof (INameScopeProvider)); }
@@ -91,7 +88,7 @@ namespace Xamarin.Forms.Xaml.Internals
 
 	class XamlValueTargetProvider : IProvideParentValues, IProvideValueTarget
 	{
-		public XamlValueTargetProvider(object targetObject, INode node, HydratationContext context, object targetProperty)
+		public XamlValueTargetProvider(object targetObject, INode node, HydrationContext context, object targetProperty)
 		{
 			Context = context;
 			Node = node;
@@ -101,9 +98,9 @@ namespace Xamarin.Forms.Xaml.Internals
 
 		INode Node { get; }
 
-		HydratationContext Context { get; }
+		HydrationContext Context { get; }
 		public object TargetObject { get; }
-		public object TargetProperty { get; } = null;
+		public object TargetProperty { get; internal set; } = null;
 
 		IEnumerable<object> IProvideParentValues.ParentObjects
 		{
@@ -132,12 +129,25 @@ namespace Xamarin.Forms.Xaml.Internals
 		}
 	}
 
-	public class SimpleValueTargetProvider : IProvideParentValues, IProvideValueTarget
+	public class SimpleValueTargetProvider : IProvideParentValues, IProvideValueTarget, IReferenceProvider
 	{
 		readonly object[] objectAndParents;
 		readonly object targetProperty;
+		readonly INameScope scope;
 
-		public SimpleValueTargetProvider(object[] objectAndParents, object targetProperty)
+		[Obsolete("SimpleValueTargetProvider(object[] objectAndParents) is obsolete as of version 2.3.4. Please use SimpleValueTargetProvider(object[] objectAndParents, object targetProperty) instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
+		public SimpleValueTargetProvider(object[] objectAndParents) : this (objectAndParents, null)
+		{
+		}
+
+		[Obsolete("SimpleValueTargetProvider(object[] objectAndParents) is obsolete as of version 3.3.0. Please use SimpleValueTargetProvider(object[] objectAndParents, object targetProperty, NameScope scope) instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
+		public SimpleValueTargetProvider(object[] objectAndParents, object targetProperty) : this (objectAndParents, targetProperty, null)
+		{
+		}
+
+		public SimpleValueTargetProvider(object[] objectAndParents, object targetProperty, INameScope scope)
 		{
 			if (objectAndParents == null)
 				throw new ArgumentNullException(nameof(objectAndParents));
@@ -146,21 +156,33 @@ namespace Xamarin.Forms.Xaml.Internals
 
 			this.objectAndParents = objectAndParents;
 			this.targetProperty = targetProperty;
+			this.scope = scope;
 		}
 
 		IEnumerable<object> IProvideParentValues.ParentObjects
-		{
-			get { return objectAndParents; }
-		}
+			=> objectAndParents;
 
 		object IProvideValueTarget.TargetObject
-		{
-			get { return objectAndParents[0]; }
-		}
+			=> objectAndParents[0];
 
 		object IProvideValueTarget.TargetProperty
+			=> targetProperty;
+
+		public object FindByName(string name)
 		{
-			get { return targetProperty; }
+			if (scope != null)
+				return scope.FindByName(name);
+
+			for (var i = 0; i < objectAndParents.Length; i++) {
+				var bo = objectAndParents[i] as BindableObject;
+				if (bo == null) continue;
+				var ns = NameScope.GetNameScope(bo) as INameScope;
+				if (ns == null) continue;
+				var value = ns.FindByName(name);
+				if (value != null)
+					return value;
+			}
+			return null;
 		}
 	}
 
@@ -179,19 +201,13 @@ namespace Xamarin.Forms.Xaml.Internals
 			Assembly currentAssembly)
 		{
 			this.currentAssembly = currentAssembly;
-			if (namespaceResolver == null)
-				throw new ArgumentNullException();
-			if (getTypeFromXmlName == null)
-				throw new ArgumentNullException();
-
-			this.namespaceResolver = namespaceResolver;
-			this.getTypeFromXmlName = getTypeFromXmlName;
+			this.namespaceResolver = namespaceResolver ?? throw new ArgumentNullException();
+			this.getTypeFromXmlName = getTypeFromXmlName ?? throw new ArgumentNullException();
 		}
 
 		Type IXamlTypeResolver.Resolve(string qualifiedTypeName, IServiceProvider serviceProvider)
 		{
-			XamlParseException e;
-			var type = Resolve(qualifiedTypeName, serviceProvider, out e);
+			var type = Resolve(qualifiedTypeName, serviceProvider, out XamlParseException e);
 			if (e != null)
 				throw e;
 			return type;
@@ -199,8 +215,7 @@ namespace Xamarin.Forms.Xaml.Internals
 
 		bool IXamlTypeResolver.TryResolve(string qualifiedTypeName, out Type type)
 		{
-			XamlParseException exception;
-			type = Resolve(qualifiedTypeName, null, out exception);
+			type = Resolve(qualifiedTypeName, null, out XamlParseException exception);
 			return exception == null;
 		}
 
@@ -212,28 +227,23 @@ namespace Xamarin.Forms.Xaml.Internals
 				return null;
 
 			string prefix, name;
-			if (split.Length == 2)
-			{
+			if (split.Length == 2) {
 				prefix = split[0];
 				name = split[1];
 			}
-			else
-			{
+			else {
 				prefix = "";
 				name = split[0];
 			}
 
 			IXmlLineInfo xmlLineInfo = null;
-			if (serviceProvider != null)
-			{
-				var lineInfoProvider = serviceProvider.GetService(typeof (IXmlLineInfoProvider)) as IXmlLineInfoProvider;
-				if (lineInfoProvider != null)
+			if (serviceProvider != null) {
+				if (serviceProvider.GetService(typeof(IXmlLineInfoProvider)) is IXmlLineInfoProvider lineInfoProvider)
 					xmlLineInfo = lineInfoProvider.XmlLineInfo;
 			}
 
-			var namespaceuri = prefix == null ? "" : namespaceResolver.LookupNamespace(prefix);
-			if (namespaceuri == null)
-			{
+			var namespaceuri = namespaceResolver.LookupNamespace(prefix);
+			if (namespaceuri == null) {
 				exception = new XamlParseException(string.Format("No xmlns declaration for prefix \"{0}\"", prefix), xmlLineInfo);
 				return null;
 			}
@@ -241,8 +251,7 @@ namespace Xamarin.Forms.Xaml.Internals
 			return getTypeFromXmlName(new XmlType(namespaceuri, name, null), xmlLineInfo, currentAssembly, out exception);
 		}
 
-		internal delegate Type GetTypeFromXmlName(
-			XmlType xmlType, IXmlLineInfo xmlInfo, Assembly currentAssembly, out XamlParseException exception);
+		internal delegate Type GetTypeFromXmlName(XmlType xmlType, IXmlLineInfo xmlInfo, Assembly currentAssembly, out XamlParseException exception);
 	}
 
 	class XamlRootObjectProvider : IRootObjectProvider
@@ -265,11 +274,27 @@ namespace Xamarin.Forms.Xaml.Internals
 		public IXmlLineInfo XmlLineInfo { get; }
 	}
 
-	interface INameScopeProvider
+	class ReferenceProvider : IReferenceProvider
 	{
-		INameScope NameScope { get; }
+		readonly INode _node;
+		internal ReferenceProvider(INode node)
+			=> _node = node;
+
+		public object FindByName(string name)
+		{
+			var n = _node;
+			object value = null;
+			while (n != null) {
+				if ((value = (n as IElementNode)?.Namescope?.FindByName(name)) != null)
+					return value;
+				n = n.Parent;
+			}
+			return null;
+		}
 	}
 
+	[Obsolete]
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public class NameScopeProvider : INameScopeProvider
 	{
 		public INameScope NameScope { get; set; }

@@ -2,18 +2,24 @@ using Xamarin.Forms.CustomAttributes;
 using Xamarin.Forms.Internals;
 using System.Threading;
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Xamarin.Forms.Maps;
 
 #if UITEST
+using Xamarin.Forms.Core.UITests;
 using Xamarin.UITest;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve(AllMembers = true)]
-	[Issue(IssueTracker.Bugzilla, 39489, "Memory leak when using NavigationPage with Maps", PlatformAffected.Android)]
+#if UITEST
+	[Category(UITestCategories.Maps)]
+	[NUnit.Framework.Category(UITestCategories.UwpIgnore)]
+#endif
+	[Issue(IssueTracker.Bugzilla, 39489, "Memory leak when using NavigationPage with Maps", PlatformAffected.Android | PlatformAffected.iOS)]
 	public class Bugzilla39489 : TestNavigationPage
 	{
 		protected override void Init()
@@ -21,9 +27,12 @@ namespace Xamarin.Forms.Controls
 			PushAsync(new Bz39489Content());
 		}
 
-		#if UITEST
+#if UITEST
+
+		protected override bool Isolate => true;
+
 		[Test]
-		public async void Bugzilla39458Test()
+		public async Task Bugzilla39489Test()
 		{
 			// Original bug report (https://bugzilla.xamarin.com/show_bug.cgi?id=39489) had a crash (OOM) after 25-30
 			// page loads. Obviously it's going to depend heavily on the device and amount of available memory, but
@@ -39,19 +48,41 @@ namespace Xamarin.Forms.Controls
 				RunningApp.Back();
 			}
 		}
-		#endif
+#endif
+	}
+
+	public class Bz39489Map : Map
+	{
+		static int s_count;
+
+		public Bz39489Map()
+		{
+			Interlocked.Increment(ref s_count);
+			Debug.WriteLine($"++++++++ Bz39489Map : Constructor, count is {s_count}");
+		}
+
+		~Bz39489Map()
+		{
+			Interlocked.Decrement(ref s_count);
+			Debug.WriteLine($"-------- Bz39489Map: Destructor, count is {s_count}");
+		}
 	}
 
 	[Preserve(AllMembers = true)]
 	public class Bz39489Content : ContentPage
 	{
+		static int s_count;
+
 		public Bz39489Content()
 		{
+			Interlocked.Increment(ref s_count);
+			Debug.WriteLine($">>>>> Bz39489Content Bz39489Content 54: Constructor, count is {s_count}");
+
 			var button = new Button { Text = "New Page" };
 
 			var gcbutton = new Button { Text = "GC" };
 
-			var map = new Map();
+			var map = new Bz39489Map();
 
 			button.Clicked += Button_Clicked;
 			gcbutton.Clicked += GCbutton_Clicked;
@@ -62,14 +93,19 @@ namespace Xamarin.Forms.Controls
 		void GCbutton_Clicked(object sender, EventArgs e)
 		{
 			System.Diagnostics.Debug.WriteLine(">>>>>>>> Running Garbage Collection");
-			GC.Collect();
-			GC.WaitForPendingFinalizers();
+			GarbageCollectionHelper.Collect();
 			System.Diagnostics.Debug.WriteLine($">>>>>>>> GC.GetTotalMemory = {GC.GetTotalMemory(true):n0}");
 		}
 
 		void Button_Clicked(object sender, EventArgs e)
 		{
 			Navigation.PushAsync(new Bz39489Content());
+		}
+
+		~Bz39489Content()
+		{
+			Interlocked.Decrement(ref s_count);
+			Debug.WriteLine($">>>>> Bz39489Content ~Bz39489Content 82: Destructor, count is {s_count}");
 		}
 	}
 }

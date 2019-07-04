@@ -1,16 +1,20 @@
-﻿using System;
-using Xamarin.Forms.CustomAttributes;
+﻿using Xamarin.Forms.CustomAttributes;
 using Xamarin.Forms.Internals;
 
-namespace Xamarin.Forms.Controls
+#if UITEST
+using Xamarin.UITest;
+using NUnit.Framework;
+#endif
+
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers=true)]
 	[Issue (IssueTracker.Github, 2597, "Stepper control .IsEnabled doesn't work", PlatformAffected.Android)]
-	public class Issue2597 : ContentPage
+	public class Issue2597 : TestContentPage
 	{
 		Label _label;
 
-		public Issue2597()
+		protected override void Init()
 		{
 			Label header = new Label
 			{
@@ -40,8 +44,7 @@ namespace Xamarin.Forms.Controls
 			};
 
 			// Accomodate iPhone status bar.
-			Padding = new Thickness(10, Device.OnPlatform(20, 0, 0), 10,
-				5);
+			Padding = Device.RuntimePlatform == Device.iOS ? new Thickness(10, 20, 10, 5) : new Thickness(10, 0, 10, 5);
 
 			// Build the page.
 			Content = new StackLayout
@@ -52,13 +55,36 @@ namespace Xamarin.Forms.Controls
 					stepper,
 					_label
 				}
-				};
+			};
 		}
 
 		void OnStepperValueChanged(object sender, ValueChangedEventArgs e)
 		{
 			_label.Text = string.Format("Stepper value is {0:F1}", e.NewValue);
 		}
+
+#if UITEST
+		[Test]
+		public void Issue2597Test()
+		{
+#if __IOS__
+			RunningApp.Tap(x => x.Marked("Increment"));
+#else
+			RunningApp.Tap("+");
+#endif
+
+			RunningApp.WaitForElement(q => q.Marked("Stepper value is 0"));
+
+
+#if __IOS__
+			RunningApp.Tap(x => x.Marked("Decrement"));
+#else
+			RunningApp.Tap("−");
+#endif
+
+			RunningApp.WaitForElement(q => q.Marked("Stepper value is 0"));
+		}
+#endif
 	}
 }
 

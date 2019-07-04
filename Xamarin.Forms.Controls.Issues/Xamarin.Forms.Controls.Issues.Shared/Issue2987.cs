@@ -3,7 +3,7 @@ using Xamarin.Forms.CustomAttributes;
 using System.Diagnostics;
 using Xamarin.Forms.Internals;
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers = true)]
 	[Issue (IssueTracker.Github, 2987, "When setting the minimum and maximum date for a date picker, only allow valid dates to be seen/selected from the DatePicker dialog", PlatformAffected.Android)]
@@ -22,7 +22,7 @@ namespace Xamarin.Forms.Controls
 				Debug.WriteLine ("Date changed");
 			};
 
-			Padding = new Thickness (10, Device.OnPlatform (20, 0, 0), 10, 5);
+			Padding = Device.RuntimePlatform == Device.iOS ? new Thickness(10, 20, 10, 5) : new Thickness(10, 0, 10, 5);
 
 			layout = new AbsoluteLayout {
 				VerticalOptions = LayoutOptions.FillAndExpand,

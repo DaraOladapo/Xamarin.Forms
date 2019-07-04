@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using Xamarin.Forms.CustomAttributes;
 using Xamarin.Forms.Internals;
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers = true)]
 	[Issue (IssueTracker.Bugzilla, 26868, "GroupHeaders do not extend on Windows Phone")]
@@ -30,9 +30,9 @@ namespace Xamarin.Forms.Controls
 
 			var listView = new ListView {
 				IsGroupingEnabled = true,
-				GroupDisplayBinding = new Binding ("GroupName"),
-				GroupShortNameBinding = new Binding ("GroupName"),
-				HasUnevenRows = Device.OnPlatform (Android: true, WinPhone: false, iOS: false),
+				GroupDisplayBinding = new Binding("GroupName"),
+				GroupShortNameBinding = new Binding("GroupName"),
+				HasUnevenRows = Device.RuntimePlatform == Device.Android,
 
 				ItemTemplate = itemTemplate,
 				GroupHeaderTemplate = groupHeaderTemplate,

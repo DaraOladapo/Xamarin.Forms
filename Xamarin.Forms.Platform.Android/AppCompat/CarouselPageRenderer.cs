@@ -1,4 +1,5 @@
-﻿using System.Collections.Specialized;
+using System;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using Android.Content;
 using Android.Support.V4.View;
@@ -10,7 +11,15 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 	{
 		bool _disposed;
 		FormsViewPager _viewPager;
+		Page _previousPage;
 
+		public CarouselPageRenderer(Context context) : base(context)
+		{
+			AutoPackage = false;
+		}
+
+		[Obsolete("This constructor is obsolete as of version 2.5. Please use CarouselPageRenderer(Context) instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public CarouselPageRenderer()
 		{
 			AutoPackage = false;
@@ -29,6 +38,12 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 		void ViewPager.IOnPageChangeListener.OnPageSelected(int position)
 		{
 			Element.CurrentPage = Element.Children[position];
+			if (_previousPage != Element.CurrentPage)
+			{
+				_previousPage?.SendDisappearing();
+				_previousPage = Element.CurrentPage;
+			}
+			Element.CurrentPage.SendAppearing();
 		}
 
 		protected override void Dispose(bool disposing)
@@ -36,27 +51,38 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 			if (disposing && !_disposed)
 			{
 				_disposed = true;
-				RemoveAllViews();
-				foreach (ContentPage pageToRemove in Element.Children)
-				{
-					IVisualElementRenderer pageRenderer = Android.Platform.GetRenderer(pageToRemove);
-					if (pageRenderer != null)
-					{
-						pageRenderer.ViewGroup.RemoveFromParent();
-						pageRenderer.Dispose();
-					}
-					pageToRemove.ClearValue(Android.Platform.RendererProperty);
-				}
+
+				if (Element != null)
+					PageController.InternalChildren.CollectionChanged -= OnChildrenCollectionChanged;
 
 				if (_viewPager != null)
 				{
+					RemoveView(_viewPager);
+
+					_viewPager.ClearOnPageChangeListeners();
 					_viewPager.Adapter.Dispose();
 					_viewPager.Dispose();
 					_viewPager = null;
 				}
 
-				if (Element != null)
-					PageController.InternalChildren.CollectionChanged -= OnChildrenCollectionChanged;
+				RemoveAllViews();
+
+				_previousPage = null;
+			
+				if (Element?.Children != null)
+				{
+					foreach (ContentPage pageToRemove in Element.Children)
+					{
+						IVisualElementRenderer pageRenderer = Android.Platform.GetRenderer(pageToRemove);
+						if (pageRenderer != null)
+						{
+							pageRenderer.View.RemoveFromParent();
+							pageRenderer.Dispose();
+						}
+
+						pageToRemove.ClearValue(Android.Platform.RendererProperty);
+					}
+				}
 			}
 
 			base.Dispose(disposing);
@@ -65,12 +91,18 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 		protected override void OnAttachedToWindow()
 		{
 			base.OnAttachedToWindow();
+			if (Parent is PageContainer pageContainer && (pageContainer.IsInFragment || pageContainer.Visibility == ViewStates.Gone))
+				return;
 			PageController.SendAppearing();
+			Element.CurrentPage?.SendAppearing();
 		}
 
 		protected override void OnDetachedFromWindow()
 		{
 			base.OnDetachedFromWindow();
+			if (Parent is PageContainer pageContainer && pageContainer.IsInFragment)
+				return;
+			Element.CurrentPage?.SendDisappearing();
 			PageController.SendDisappearing();
 		}
 
@@ -78,7 +110,7 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 		{
 			base.OnElementChanged(e);
 
-			var activity = (FormsAppCompatActivity)Context;
+			var activity = (FormsAppCompatActivity)Context.GetActivity();
 
 			if (e.OldElement != null)
 				((IPageController)e.OldElement).InternalChildren.CollectionChanged -= OnChildrenCollectionChanged;
@@ -91,16 +123,19 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 					{
 						OverScrollMode = OverScrollMode.Never,
 						EnableGesture = true,
-						LayoutParameters = new LayoutParams(LayoutParams.MatchParent, LayoutParams.MatchParent),
+						LayoutParameters = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.MatchParent),
 						Adapter = new FormsFragmentPagerAdapter<ContentPage>(e.NewElement, activity.SupportFragmentManager) { CountOverride = e.NewElement.Children.Count }
 					};
-				pager.Id = FormsAppCompatActivity.GetUniqueId();
+				pager.Id = Platform.GenerateViewId();
 				pager.AddOnPageChangeListener(this);
 
-				AddView(pager);
+				ViewGroup.AddView(pager);
 				CarouselPage carouselPage = e.NewElement;
 				if (carouselPage.CurrentPage != null)
+				{
+					_previousPage = carouselPage.CurrentPage;
 					ScrollToCurrentPage();
+				}
 
 				((IPageController)carouselPage).InternalChildren.CollectionChanged += OnChildrenCollectionChanged;
 			}

@@ -9,7 +9,7 @@ using Xamarin.UITest;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers = true)]
 	[Issue (IssueTracker.Bugzilla, 31255, "Master's page Icon cause memory leak after MasterDetailPage is popped out by holding on page")]
@@ -53,7 +53,7 @@ namespace Xamarin.Forms.Controls
 				((Label)((StackLayout)Content).Children [0]).Text =
 						string.Format ("Page1. But Page2 IsAlive = {0}", _page2Tracker.IsAlive);
 				await Task.Delay (1000);
-				GC.Collect ();
+				GarbageCollectionHelper.Collect();
 			}
 		}
 
@@ -63,7 +63,7 @@ namespace Xamarin.Forms.Controls
 			public Page2 ()
 			{
 				Master = new Page () { Title = "Master", 
-					Icon = "Icon.png" 
+					IconImageSource = "Icon.png" 
 				};
 				Detail = new Page () { Title = "Detail" };
 			}

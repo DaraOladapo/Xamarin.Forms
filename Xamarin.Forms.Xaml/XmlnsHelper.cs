@@ -2,19 +2,8 @@ using System;
 
 namespace Xamarin.Forms.Xaml
 {
-	internal static class XmlnsHelper
+	static class XmlnsHelper
 	{
-		public static bool IsCustom(string ns)
-		{
-			switch (ns)
-			{
-				case "":
-				case "http://xamarin.com/schemas/2014/forms":
-					return false;
-			}
-			return true;
-		}
-
 		public static string ParseNamespaceFromXmlns(string xmlns)
 		{
 			string typeName;
@@ -28,6 +17,19 @@ namespace Xamarin.Forms.Xaml
 		}
 
 		public static void ParseXmlns(string xmlns, out string typeName, out string ns, out string asm, out string targetPlatform)
+		{
+			typeName = ns = asm = targetPlatform = null;
+
+			xmlns = xmlns.Trim();
+
+			if (xmlns.StartsWith("using:", StringComparison.Ordinal)) {
+				ParseUsing(xmlns, out typeName, out ns, out asm, out targetPlatform);
+				return;
+			}
+			ParseClrNamespace(xmlns, out typeName, out ns, out asm, out targetPlatform);
+		}
+
+		static void ParseClrNamespace(string xmlns, out string typeName, out string ns, out string asm, out string targetPlatform)
 		{
 			typeName = ns = asm = targetPlatform = null;
 
@@ -55,6 +57,18 @@ namespace Xamarin.Forms.Xaml
 				}
 				else
 					typeName = decl;
+			}
+		}
+
+		static void ParseUsing(string xmlns, out string typeName, out string ns, out string asm, out string targetPlatform)
+		{
+			typeName = ns = asm = targetPlatform = null;
+
+			foreach (var decl in xmlns.Split(';')) {
+				if (decl.StartsWith("using:", StringComparison.Ordinal)) {
+					ns = decl.Substring(6, decl.Length - 6);
+					continue;
+				}
 			}
 		}
 	}

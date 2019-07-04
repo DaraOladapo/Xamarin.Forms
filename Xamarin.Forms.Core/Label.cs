@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using Xamarin.Forms.Internals;
 using Xamarin.Forms.Platform;
 
@@ -7,50 +11,80 @@ namespace Xamarin.Forms
 {
 	[ContentProperty("Text")]
 	[RenderWith(typeof(_LabelRenderer))]
-	public class Label : View, IFontElement, IElementConfiguration<Label>
+	public class Label : View, IFontElement, ITextElement, ITextAlignmentElement, ILineHeightElement, IElementConfiguration<Label>, IDecorableTextElement
 	{
-		public static readonly BindableProperty HorizontalTextAlignmentProperty = BindableProperty.Create("HorizontalTextAlignment", typeof(TextAlignment), typeof(Label), TextAlignment.Start,
-			propertyChanged: OnHorizontalTextAlignmentPropertyChanged);
+		public static readonly BindableProperty HorizontalTextAlignmentProperty = TextAlignmentElement.HorizontalTextAlignmentProperty;
 
-		[Obsolete("XAlignProperty is obsolete. Please use HorizontalTextAlignmentProperty instead.")]
+		[Obsolete("XAlignProperty is obsolete as of version 2.0.0. Please use HorizontalTextAlignmentProperty instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public static readonly BindableProperty XAlignProperty = HorizontalTextAlignmentProperty;
 
 		public static readonly BindableProperty VerticalTextAlignmentProperty = BindableProperty.Create("VerticalTextAlignment", typeof(TextAlignment), typeof(Label), TextAlignment.Start,
 			propertyChanged: OnVerticalTextAlignmentPropertyChanged);
 
-		[Obsolete("YAlignProperty is obsolete. Please use VerticalTextAlignmentProperty instead.")]
+		[Obsolete("YAlignProperty is obsolete as of version 2.0.0. Please use VerticalTextAlignmentProperty instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public static readonly BindableProperty YAlignProperty = VerticalTextAlignmentProperty;
 
-		public static readonly BindableProperty TextColorProperty = BindableProperty.Create("TextColor", typeof(Color), typeof(Label), Color.Default);
+		public static readonly BindableProperty TextColorProperty = TextElement.TextColorProperty;
 
-		public static readonly BindableProperty FontProperty = BindableProperty.Create("Font", typeof(Font), typeof(Label), default(Font), propertyChanged: FontStructPropertyChanged);
+		public static readonly BindableProperty FontProperty = FontElement.FontProperty;
 
-		public static readonly BindableProperty TextProperty = BindableProperty.Create("Text", typeof(string), typeof(Label), default(string), propertyChanged: OnTextPropertyChanged);
+		public static readonly BindableProperty TextProperty = BindableProperty.Create(nameof(Text), typeof(string), typeof(Label), default(string), propertyChanged: OnTextPropertyChanged);
 
-		public static readonly BindableProperty FontFamilyProperty = BindableProperty.Create("FontFamily", typeof(string), typeof(Label), default(string), propertyChanged: OnFontFamilyChanged);
+		public static readonly BindableProperty FontFamilyProperty = FontElement.FontFamilyProperty;
 
-		public static readonly BindableProperty FontSizeProperty = BindableProperty.Create("FontSize", typeof(double), typeof(Label), -1.0, propertyChanged: OnFontSizeChanged,
-			defaultValueCreator: bindable => Device.GetNamedSize(NamedSize.Default, (Label)bindable));
+		public static readonly BindableProperty FontSizeProperty = FontElement.FontSizeProperty;
 
-		public static readonly BindableProperty FontAttributesProperty = BindableProperty.Create("FontAttributes", typeof(FontAttributes), typeof(Label), FontAttributes.None,
-			propertyChanged: OnFontAttributesChanged);
+		public static readonly BindableProperty FontAttributesProperty = FontElement.FontAttributesProperty;
 
-		public static readonly BindableProperty FormattedTextProperty = BindableProperty.Create("FormattedText", typeof(FormattedString), typeof(Label), default(FormattedString),
+		public static readonly BindableProperty TextDecorationsProperty = DecorableTextElement.TextDecorationsProperty;
+
+		public static readonly BindableProperty FormattedTextProperty = BindableProperty.Create(nameof(FormattedText), typeof(FormattedString), typeof(Label), default(FormattedString),
 			propertyChanging: (bindable, oldvalue, newvalue) =>
 			{
 				if (oldvalue != null)
-					((FormattedString)oldvalue).PropertyChanged -= ((Label)bindable).OnFormattedTextChanged;
+				{
+					var formattedString = ((FormattedString)oldvalue);
+					var label = ((Label)bindable);
+
+					formattedString.SpansCollectionChanged -= label.Span_CollectionChanged;
+					formattedString.PropertyChanged -= label.OnFormattedTextChanged;
+					formattedString.PropertyChanging -= label.OnFormattedTextChanging;
+					formattedString.Parent = null;
+					label.RemoveSpans(formattedString.Spans);
+				}
 			}, propertyChanged: (bindable, oldvalue, newvalue) =>
 			{
+				var label = ((Label)bindable);
+
 				if (newvalue != null)
-					((FormattedString)newvalue).PropertyChanged += ((Label)bindable).OnFormattedTextChanged;
-				((Label)bindable).InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+				{
+					var formattedString = (FormattedString)newvalue;
+					formattedString.Parent = label;
+					formattedString.PropertyChanging += label.OnFormattedTextChanging;
+					formattedString.PropertyChanged += label.OnFormattedTextChanged;
+					formattedString.SpansCollectionChanged += label.Span_CollectionChanged;
+					label.SetupSpans(formattedString.Spans);
+				}
+
+				label.InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
 				if (newvalue != null)
-					((Label)bindable).Text = null;
+					label.Text = null;
 			});
 
-		public static readonly BindableProperty LineBreakModeProperty = BindableProperty.Create("LineBreakMode", typeof(LineBreakMode), typeof(Label), LineBreakMode.WordWrap,
+		public static readonly BindableProperty LineBreakModeProperty = BindableProperty.Create(nameof(LineBreakMode), typeof(LineBreakMode), typeof(Label), LineBreakMode.WordWrap,
 			propertyChanged: (bindable, oldvalue, newvalue) => ((Label)bindable).InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged));
+
+		public static readonly BindableProperty LineHeightProperty = LineHeightElement.LineHeightProperty;
+
+		public static readonly BindableProperty MaxLinesProperty = BindableProperty.Create(nameof(MaxLines), typeof(int), typeof(Label), -1, propertyChanged: (bindable, oldvalue, newvalue) =>
+			{
+				if (bindable != null)
+				{
+					((Label)bindable).InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+				}
+			});
 
 		readonly Lazy<PlatformConfigurationRegistry<Label>> _platformConfigurationRegistry;
 
@@ -59,9 +93,15 @@ namespace Xamarin.Forms
 			_platformConfigurationRegistry = new Lazy<PlatformConfigurationRegistry<Label>>(() => new PlatformConfigurationRegistry<Label>(this));
 		}
 
-		bool _cancelEvents;
+		protected override void OnBindingContextChanged()
+		{
+			base.OnBindingContextChanged();
+			if (FormattedText != null)
+				SetInheritedBindingContext(FormattedText, this.BindingContext);
+		}
 
-		[Obsolete("Please use the Font attributes which are on the class itself. Obsoleted in v1.3.0")]
+		[Obsolete("Font is obsolete as of version 1.3.0. Please use the Font attributes which are on the class itself.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public Font Font
 		{
 			get { return (Font)GetValue(FontProperty); }
@@ -76,8 +116,8 @@ namespace Xamarin.Forms
 
 		public TextAlignment HorizontalTextAlignment
 		{
-			get { return (TextAlignment)GetValue(HorizontalTextAlignmentProperty); }
-			set { SetValue(HorizontalTextAlignmentProperty, value); }
+			get { return (TextAlignment)GetValue(TextAlignmentElement.HorizontalTextAlignmentProperty); }
+			set { SetValue(TextAlignmentElement.HorizontalTextAlignmentProperty, value); }
 		}
 
 		public LineBreakMode LineBreakMode
@@ -94,8 +134,8 @@ namespace Xamarin.Forms
 
 		public Color TextColor
 		{
-			get { return (Color)GetValue(TextColorProperty); }
-			set { SetValue(TextColorProperty, value); }
+			get { return (Color)GetValue(TextElement.TextColorProperty); }
+			set { SetValue(TextElement.TextColorProperty, value); }
 		}
 
 		public TextAlignment VerticalTextAlignment
@@ -104,14 +144,16 @@ namespace Xamarin.Forms
 			set { SetValue(VerticalTextAlignmentProperty, value); }
 		}
 
-		[Obsolete("XAlign is obsolete. Please use HorizontalTextAlignment instead.")]
+		[Obsolete("XAlign is obsolete as of version 2.0.0. Please use HorizontalTextAlignment instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public TextAlignment XAlign
 		{
 			get { return (TextAlignment)GetValue(XAlignProperty); }
 			set { SetValue(XAlignProperty, value); }
 		}
 
-		[Obsolete("YAlign is obsolete. Please use VerticalTextAlignment instead.")]
+		[Obsolete("YAlign is obsolete as of version 2.0.0. Please use VerticalTextAlignment instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public TextAlignment YAlign
 		{
 			get { return (TextAlignment)GetValue(YAlignProperty); }
@@ -122,6 +164,12 @@ namespace Xamarin.Forms
 		{
 			get { return (FontAttributes)GetValue(FontAttributesProperty); }
 			set { SetValue(FontAttributesProperty, value); }
+		}
+
+		public TextDecorations TextDecorations
+		{
+			get { return (TextDecorations)GetValue(TextDecorationsProperty); }
+			set { SetValue(TextDecorationsProperty, value); }
 		}
 
 		public string FontFamily
@@ -137,141 +185,126 @@ namespace Xamarin.Forms
 			set { SetValue(FontSizeProperty, value); }
 		}
 
-		static void FontStructPropertyChanged(BindableObject bindable, object oldValue, object newValue)
+		public double LineHeight
 		{
-			var label = (Label)bindable;
-			if (label._cancelEvents)
-				return;
-
-			label._cancelEvents = true;
-
-			var font = (Font)newValue;
-			if (font == Font.Default)
-			{
-				label.FontFamily = null;
-				label.FontSize = Device.GetNamedSize(NamedSize.Default, label);
-				label.FontAttributes = FontAttributes.None;
-			}
-			else
-			{
-				label.FontFamily = font.FontFamily;
-				if (font.UseNamedSize)
-				{
-					label.FontSize = Device.GetNamedSize(font.NamedSize, label.GetType(), true);
-				}
-				else
-				{
-					label.FontSize = font.FontSize;
-				}
-				label.FontAttributes = font.FontAttributes;
-			}
-
-			label._cancelEvents = false;
-
-			label.InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+			get { return (double)GetValue(LineHeightProperty); }
+			set { SetValue(LineHeightProperty, value); }
 		}
 
-		static void OnFontAttributesChanged(BindableObject bindable, object oldValue, object newValue)
+		public int MaxLines
 		{
-			var label = (Label)bindable;
-
-			if (label._cancelEvents)
-				return;
-
-			label._cancelEvents = true;
-
-			var attributes = (FontAttributes)newValue;
-
-			object[] values = label.GetValues(FontFamilyProperty, FontSizeProperty);
-			var family = (string)values[0];
-			if (family != null)
-			{
-#pragma warning disable 0618 // retain until Font removed
-				label.Font = Font.OfSize(family, (double)values[1]).WithAttributes(attributes);
-#pragma warning restore 0618
-			}
-			else
-			{
-#pragma warning disable 0618 // retain until Font removed
-				label.Font = Font.SystemFontOfSize((double)values[1], attributes);
-#pragma warning restore 0618
-			}
-
-			label._cancelEvents = false;
-
-			label.InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+			get => (int)GetValue(MaxLinesProperty);
+			set => SetValue(MaxLinesProperty, value);
 		}
 
-		static void OnFontFamilyChanged(BindableObject bindable, object oldValue, object newValue)
+		double IFontElement.FontSizeDefaultValueCreator() =>
+			Device.GetNamedSize(NamedSize.Default, (Label)this);
+
+		void IFontElement.OnFontAttributesChanged(FontAttributes oldValue, FontAttributes newValue) =>
+			InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+
+		void IFontElement.OnFontFamilyChanged(string oldValue, string newValue) =>
+			InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+
+		void IFontElement.OnFontSizeChanged(double oldValue, double newValue) =>
+			InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+
+		void IFontElement.OnFontChanged(Font oldValue, Font newValue) =>
+         	InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+
+		void ILineHeightElement.OnLineHeightChanged(double oldValue, double newValue) =>
+			InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+
+		void OnFormattedTextChanging(object sender, PropertyChangingEventArgs e)
 		{
-			var label = (Label)bindable;
-			if (label._cancelEvents)
-				return;
-
-			label._cancelEvents = true;
-
-			object[] values = label.GetValues(FontSizeProperty, FontAttributesProperty);
-
-			var family = (string)newValue;
-			if (family != null)
-			{
-#pragma warning disable 0618 // retain until Font removed
-				label.Font = Font.OfSize(family, (double)values[0]).WithAttributes((FontAttributes)values[1]);
-#pragma warning restore 0618
-			}
-			else
-			{
-#pragma warning disable 0618 // retain until Font removed
-				label.Font = Font.SystemFontOfSize((double)values[0], (FontAttributes)values[1]);
-#pragma warning restore 0618
-			}
-
-			label._cancelEvents = false;
-			label.InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
+			OnPropertyChanging("FormattedText");
 		}
-
-		static void OnFontSizeChanged(BindableObject bindable, object oldValue, object newValue)
-		{
-			var label = (Label)bindable;
-			if (label._cancelEvents)
-				return;
-
-			label._cancelEvents = true;
-
-			object[] values = label.GetValues(FontFamilyProperty, FontAttributesProperty);
-
-			var size = (double)newValue;
-			var family = (string)values[0];
-			if (family != null)
-			{
-#pragma warning disable 0618 // retain until Font removed
-				label.Font = Font.OfSize(family, size).WithAttributes((FontAttributes)values[1]);
-#pragma warning restore 0618
-			}
-			else
-			{
-#pragma warning disable 0618 // retain until Font removed
-				label.Font = Font.SystemFontOfSize(size, (FontAttributes)values[1]);
-#pragma warning restore 0618
-			}
-
-			label._cancelEvents = false;
-
-			label.InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
-		}
-
 		void OnFormattedTextChanged(object sender, PropertyChangedEventArgs e)
 		{
-			InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
 			OnPropertyChanged("FormattedText");
+			InvalidateMeasureInternal(InvalidationTrigger.MeasureChanged);
 		}
 
-		static void OnHorizontalTextAlignmentPropertyChanged(BindableObject bindable, object oldValue, object newValue)
+		void SetupSpans(System.Collections.IEnumerable spans)
 		{
-			var label = (Label)bindable;
+			foreach (Span span in spans)
+			{
+				span.GestureRecognizersCollectionChanged += Span_GestureRecognizer_CollectionChanged;
+				SetupSpanGestureRecognizers(span.GestureRecognizers);
+			}
+		}
+
+		void SetupSpanGestureRecognizers(System.Collections.IEnumerable gestureRecognizers)
+		{
+			foreach(GestureRecognizer gestureRecognizer in gestureRecognizers)
+				GestureController.CompositeGestureRecognizers.Add(new ChildGestureRecognizer() { GestureRecognizer = gestureRecognizer });
+		}
+
+
+		void RemoveSpans(System.Collections.IEnumerable spans)
+		{
+			foreach (Span span in spans)
+			{
+				RemoveSpanGestureRecognizers(span.GestureRecognizers);
+				span.GestureRecognizersCollectionChanged -= Span_GestureRecognizer_CollectionChanged;
+			}
+		}
+
+		void RemoveSpanGestureRecognizers(System.Collections.IEnumerable gestureRecognizers)
+		{
+			foreach (GestureRecognizer gestureRecognizer in gestureRecognizers)
+				foreach (var spanRecognizer in GestureController.CompositeGestureRecognizers.ToList())
+					if (spanRecognizer is ChildGestureRecognizer childGestureRecognizer && childGestureRecognizer.GestureRecognizer == gestureRecognizer)
+						GestureController.CompositeGestureRecognizers.Remove(spanRecognizer);
+		}
+
+
+		void Span_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+		{
+			switch (e.Action)
+			{
+				case NotifyCollectionChangedAction.Add:
+					SetupSpans(e.NewItems);
+					break;
+				case NotifyCollectionChangedAction.Remove:
+					RemoveSpans(e.OldItems);
+					break;
+				case NotifyCollectionChangedAction.Replace:
+					RemoveSpans(e.OldItems);
+					SetupSpans(e.NewItems);
+					break;
+				case NotifyCollectionChangedAction.Reset:
+					// Is never called, because the clear command is overridden.
+					break;
+			}
+		}
+
+		void Span_GestureRecognizer_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+		{
+
+			switch (e.Action)
+			{
+				case NotifyCollectionChangedAction.Add:
+					SetupSpanGestureRecognizers(e.NewItems);
+					break;
+				case NotifyCollectionChangedAction.Remove:
+					RemoveSpanGestureRecognizers(e.OldItems);
+					break;
+				case NotifyCollectionChangedAction.Replace:
+					RemoveSpanGestureRecognizers(e.OldItems);
+					SetupSpanGestureRecognizers(e.NewItems);
+					break;
+				case NotifyCollectionChangedAction.Reset:
+					// is never called, because the clear command is overridden.
+					break;
+			}
+		}
+
+		void ITextAlignmentElement.OnHorizontalTextAlignmentPropertyChanged(TextAlignment oldValue, TextAlignment newValue)
+		{
 #pragma warning disable 0618 // retain until XAlign removed
-			label.OnPropertyChanged(nameof(XAlign));
-#pragma warning restore 0618
+			OnPropertyChanged(nameof(XAlign));
+#pragma warning restore
 		}
 
 		static void OnTextPropertyChanged(BindableObject bindable, object oldvalue, object newvalue)
@@ -297,6 +330,31 @@ namespace Xamarin.Forms
 		public IPlatformElementConfiguration<T, Label> On<T>() where T : IConfigPlatform
 		{
 			return _platformConfigurationRegistry.Value.On<T>();
+		}
+
+		void ITextElement.OnTextColorPropertyChanged(Color oldValue, Color newValue)
+		{
+		}
+
+		public override IList<GestureElement> GetChildElements(Point point)
+		{
+			if (FormattedText?.Spans == null || FormattedText?.Spans.Count == 0)
+				return null;
+
+			var spans = new List<GestureElement>();
+			for (int i = 0; i < FormattedText.Spans.Count; i++)
+			{
+				Span span = FormattedText.Spans[i];
+				if (span.GestureRecognizers.Count > 0 && (((ISpatialElement)span).Region.Contains(point) || point.IsEmpty))
+					spans.Add(span);
+			}
+
+			if (!point.IsEmpty && spans.Count > 1) // More than 2 elements overlapping, deflate to see which one is actually hit.
+				for (var i = spans.Count - 1; i >= 0; i--)
+					if (!((ISpatialElement)spans[i]).Region.Deflate().Contains(point))
+						spans.RemoveAt(i);
+
+			return spans;
 		}
 	}
 }

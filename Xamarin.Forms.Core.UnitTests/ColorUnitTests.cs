@@ -225,6 +225,23 @@ namespace Xamarin.Forms.Core.UnitTests
 		}
 
 		[Test]
+		public void TestToHex()
+		{
+			var colorRgb = Color.FromRgb(138, 43, 226);
+			Assert.AreEqual(Color.FromHex(colorRgb.ToHex()), colorRgb);
+			var colorRgba = Color.FromRgba(138, 43, 226,.2);
+			Assert.AreEqual(Color.FromHex(colorRgba.ToHex()), colorRgba);
+			var colorHsl = Color.FromHsla(240, 1, 1);	
+			Assert.AreEqual(Color.FromHex(colorHsl.ToHex()),colorHsl);
+			var colorHsla = Color.FromHsla(240, 1, 1,.1);
+			var hexFromHsla = Color.FromHex(colorHsla.ToHex());
+			Assert.That(hexFromHsla.A, Is.EqualTo(colorHsla.A).Within(0.002));
+			Assert.That(hexFromHsla.R, Is.EqualTo(colorHsla.R).Within(0.001));
+			Assert.That(hexFromHsla.G, Is.EqualTo(colorHsla.G).Within(0.001));
+			Assert.That(hexFromHsla.B, Is.EqualTo(colorHsla.B).Within(0.001));
+		}
+
+		[Test]
 		public void FromRGBDouble ()
 		{
 			var color = Color.FromRgb (0.2, 0.3, 0.4);
@@ -241,19 +258,34 @@ namespace Xamarin.Forms.Core.UnitTests
 		}
 
 		[Test]
-		public void TestColorTypeConverter ()
+		public void TestColorTypeConverter()
 		{
-			var converter = new ColorTypeConverter ();
-			Assert.True (converter.CanConvertFrom (typeof(string)));
-			Assert.AreEqual (Color.Blue, converter.ConvertFromInvariantString ("Color.Blue"));
-			Assert.AreEqual (Color.Blue, converter.ConvertFromInvariantString ("Blue"));
-			Assert.AreEqual (Color.Blue, converter.ConvertFromInvariantString ("#0000ff"));
-			Assert.AreEqual (Color.Default, converter.ConvertFromInvariantString ("Color.Default"));
-			Assert.AreEqual (Color.Accent, converter.ConvertFromInvariantString ("Accent"));
-			var hotpink = Color.FromHex ("#FF69B4");
+			var converter = new ColorTypeConverter();
+			Assert.True(converter.CanConvertFrom(typeof(string)));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("Color.Blue"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("Blue"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("blue"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("#0000ff"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("#00f"));
+			Assert.AreEqual(Color.Blue.MultiplyAlpha(2.0 / 3.0), converter.ConvertFromInvariantString("#a00f"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("rgb(0,0, 255)"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("rgb(0,0, 300)"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("rgb(0,0, 300)"));
+			Assert.AreEqual(Color.Blue.MultiplyAlpha(.8), converter.ConvertFromInvariantString("rgba(0%,0%, 100%, .8)"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("rgb(0%,0%, 110%)"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("hsl(240,100%, 50%)"));
+			Assert.AreEqual(Color.Blue, converter.ConvertFromInvariantString("hsl(240,110%, 50%)"));
+			Assert.AreEqual(Color.Blue.MultiplyAlpha(.8), converter.ConvertFromInvariantString("hsla(240,100%, 50%, .8)"));
+			Assert.AreEqual(Color.Default, converter.ConvertFromInvariantString("Color.Default"));
+			Assert.AreEqual(Color.Accent, converter.ConvertFromInvariantString("Accent"));
+			var hotpink = Color.FromHex("#FF69B4");
 			Color.Accent = hotpink;
-			Assert.AreEqual (Color.Accent, converter.ConvertFromInvariantString ("Accent"));
-			Assert.Throws<InvalidOperationException> (() => converter.ConvertFromInvariantString (""));
+			Assert.AreEqual(Color.Accent, converter.ConvertFromInvariantString("Accent"));
+			Assert.AreEqual(Color.Default, converter.ConvertFromInvariantString("#12345"));
+			Assert.Throws<InvalidOperationException>(() => converter.ConvertFromInvariantString(""));
+			Assert.Throws<InvalidOperationException>(() => converter.ConvertFromInvariantString("rgb(0,0,255"));
+			Assert.Throws<InvalidOperationException>(() => converter.ConvertFromInvariantString("hsl(12, 100%)"));
+			Assert.Throws<InvalidOperationException>(() => converter.ConvertFromInvariantString("rgba(0,0,255)"));
 		}
 
 		[Test]
@@ -262,7 +294,39 @@ namespace Xamarin.Forms.Core.UnitTests
 			Assert.AreEqual (Color.Default, default(Color));
 			Assert.AreEqual (Color.Default, new Color ());
 		}
+		
+		[Test]
+		public void TestImplicitConversionToSystemDrawingColor()
+		{
+			var color = Color.FromRgba(0.2, 0.3, 0.4, 0.5);
+			System.Drawing.Color sdColor = color;
+			Assert.AreEqual(51, sdColor.R);
+			Assert.AreEqual(76, sdColor.G);
+			Assert.AreEqual(102, sdColor.B);
+			Assert.AreEqual(127, sdColor.A);
+		}
 
+		[Test]
+		public void TestDefaultColorToSystemDrawingColorEmpty()
+		{
+			Assert.AreEqual(System.Drawing.Color.Empty, (System.Drawing.Color)Color.Default);
+		}
 
+		[Test]
+		public void TestImplicitConversionFromSystemDrawingColor()
+		{
+			System.Drawing.Color sdColor = System.Drawing.Color.FromArgb(32, 64, 128, 255);
+			Color color = sdColor;
+			Assert.AreEqual(.125, color.A, .01);
+			Assert.AreEqual(.25, color.R, .01);
+			Assert.AreEqual(.5, color.G, .01);
+			Assert.AreEqual(1, color.B, .01);
+		}
+
+		[Test]
+		public void TestSystemDrawingColorEmptyToColorDefault()
+		{
+			Assert.AreEqual(Color.Default, (Color)System.Drawing.Color.Empty);
+		}
 	}
 }

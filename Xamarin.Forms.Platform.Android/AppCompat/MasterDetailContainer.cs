@@ -1,5 +1,7 @@
+using System;
 using Android.App;
 using Android.Content;
+using Android.OS;
 using Fragment = Android.Support.V4.App.Fragment;
 using FragmentManager = Android.Support.V4.App.FragmentManager;
 using FragmentTransaction = Android.Support.V4.App.FragmentTransaction;
@@ -11,17 +13,20 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 		PageContainer _pageContainer;
 		FragmentManager _fragmentManager;
 		readonly bool _isMaster;
-		readonly MasterDetailPage _parent;
+		MasterDetailPage _parent;
 		Fragment _currentFragment;
+		bool _disposed;
 
 		public MasterDetailContainer(MasterDetailPage parent, bool isMaster, Context context) : base(parent, isMaster, context)
 		{
-			Id = FormsAppCompatActivity.GetUniqueId();
+			Id = Platform.GenerateViewId();
 			_parent = parent;
 			_isMaster = isMaster;
 		}
 
-		FragmentManager FragmentManager => _fragmentManager ?? (_fragmentManager = ((FormsAppCompatActivity)Context).SupportFragmentManager);
+		public bool MarkedForDispose { get; internal set; } = false;
+
+		FragmentManager FragmentManager => _fragmentManager ?? (_fragmentManager = Context.GetFragmentManager());
 
 		protected override void OnLayout(bool changed, int l, int t, int r, int b)
 		{
@@ -52,6 +57,8 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 			}
 		}
 
+		public void UpdateFlowDirection() => _pageContainer?.UpdateFlowDirection(_parent);
+
 		protected override void AddChildView(VisualElement childView)
 		{
 			_pageContainer = null;
@@ -64,46 +71,85 @@ namespace Xamarin.Forms.Platform.Android.AppCompat
 
 				if (_currentFragment != null)
 				{
+					if (!_parent.IsAttachedToRoot())
+						return;
+
 					// But first, if the previous occupant of this container was a fragment, we need to remove it properly
-					FragmentTransaction transaction = FragmentManager.BeginTransaction();
-					transaction.DisallowAddToBackStack();
-					transaction.Remove(_currentFragment);
-					transaction.SetTransition((int)FragmentTransit.None);
-					transaction.Commit();
+					FragmentTransaction transaction = FragmentManager.BeginTransactionEx();
+					transaction.RemoveEx(_currentFragment);
+					transaction.SetTransitionEx((int)FragmentTransit.None);
+
+					// This is a removal of a fragment that's not going on the back stack; there's no reason to care
+					// whether its state gets successfully saved, since we'll never restore it. Ergo, CommitAllowingStateLoss
+					transaction.CommitAllowingStateLossEx();
 
 					_currentFragment = null;
 				}
-				
+
 				base.AddChildView(childView);
 			}
 			else
 			{
+				if (!_parent.IsAttachedToRoot())
+					return;
+
 				// The renderers for NavigationPage and TabbedPage both host fragments, so they need to be wrapped in a 
 				// FragmentContainer in order to get isolated fragment management
 				Fragment fragment = FragmentContainer.CreateInstance(page);
-				
+
 				var fc = fragment as FragmentContainer;
 
 				fc?.SetOnCreateCallback(pc =>
 				{
 					_pageContainer = pc;
+					UpdateFlowDirection();
 					SetDefaultBackgroundColor(pc.Child);
 				});
 
-				FragmentTransaction transaction = FragmentManager.BeginTransaction();
-				transaction.DisallowAddToBackStack();
+				FragmentTransaction transaction = FragmentManager.BeginTransactionEx();
 
 				if (_currentFragment != null)
-				{
-					transaction.Remove(_currentFragment);
-				}
+					transaction.RemoveEx(_currentFragment);
 
-				transaction.Add(Id, fragment);
-				transaction.SetTransition((int)FragmentTransit.FragmentOpen);
-				transaction.Commit();
+				transaction.AddEx(Id, fragment);
+				transaction.SetTransitionEx((int)FragmentTransit.None);
+
+				// We don't currently support fragment restoration 
+				// So we don't need to worry about loss of this fragment's state
+				transaction.CommitAllowingStateLossEx();
 
 				_currentFragment = fragment;
 			}
+		}
+
+		protected override void Dispose(bool disposing)
+		{
+			if (_disposed)
+			{
+				return;
+			}
+
+			_disposed = true;
+
+			if (disposing)
+			{
+				if (_currentFragment != null && !FragmentManager.IsDestroyed)
+				{
+					FragmentTransaction transaction = FragmentManager.BeginTransactionEx();
+					transaction.RemoveEx(_currentFragment);
+					transaction.SetTransitionEx((int)FragmentTransit.None);
+					transaction.CommitAllowingStateLossEx();
+					FragmentManager.ExecutePendingTransactionsEx();
+
+					_currentFragment = null;
+				}
+
+				_parent = null;
+				_pageContainer = null;
+				_fragmentManager = null;
+			}
+
+			base.Dispose(disposing);
 		}
 
 		public void SetFragmentManager(FragmentManager fragmentManager)

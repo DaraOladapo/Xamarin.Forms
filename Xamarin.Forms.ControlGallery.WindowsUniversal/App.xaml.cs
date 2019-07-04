@@ -7,6 +7,9 @@ using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
+using Windows.Foundation.Metadata;
+using Windows.UI;
+using Windows.UI.ViewManagement;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -24,11 +27,11 @@ namespace Xamarin.Forms.ControlGallery.WindowsUniversal
     /// </summary>
     sealed partial class App
     {
-        /// <summary>
-        /// Initializes the singleton application object.  This is the first line of authored code
-        /// executed, and as such is the logical equivalent of main() or WinMain().
-        /// </summary>
-        public App()
+		/// <summary>
+		/// Initializes the singleton application object.  This is the first line of authored code
+		/// executed, and as such is the logical equivalent of main() or WinMain().
+		/// </summary>
+		public App()
         {
             InitializeComponent();
             Suspending += OnSuspending;
@@ -41,9 +44,14 @@ namespace Xamarin.Forms.ControlGallery.WindowsUniversal
         /// <param name="e">Details about the launch request and process.</param>
         protected override void OnLaunched(LaunchActivatedEventArgs e)
         {
-
+			/* uncomment if you want to run tests without preloading
+			 * issues list or change other behavior based on if tests
+			 * are running in UI Harness
+			 * if (!String.IsNullOrWhiteSpace(e.Arguments) &&
+				e.Arguments.Contains("RunningAsUITests"))
+				Controls.App.PreloadTestCasesIssuesList = false;*/
 #if DEBUG
-            if (System.Diagnostics.Debugger.IsAttached)
+			if (System.Diagnostics.Debugger.IsAttached)
             {
              //   DebugSettings.EnableFrameRateCounter = true;
             }
@@ -63,7 +71,7 @@ namespace Xamarin.Forms.ControlGallery.WindowsUniversal
                 rootFrame.NavigationFailed += OnNavigationFailed;
 
 				Forms.Init (e);
-				FormsMaps.Init (Controls.App.Config["UWPMapsAuthKey"]);
+				//FormsMaps.Init (Controls.App.Config["UWPMapsAuthKey"]);
 
 				// Place the frame in the current Window
 				Window.Current.Content = rootFrame;
@@ -76,8 +84,21 @@ namespace Xamarin.Forms.ControlGallery.WindowsUniversal
                 // parameter
                 rootFrame.Navigate(typeof(MainPage), e.Arguments);
             }
-            // Ensure the current window is active
-            Window.Current.Activate();
+
+			//// Uncomment to test overriding the status bar color
+			//if (ApiInformation.IsTypePresent("Windows.UI.ViewManagement.StatusBar"))
+			//{
+			//	var statusBar = StatusBar.GetForCurrentView();
+			//	if (statusBar != null)
+			//	{
+			//		statusBar.BackgroundOpacity = 1;
+			//		statusBar.BackgroundColor = Colors.Black;
+			//		statusBar.ForegroundColor = Colors.White;
+			//	}
+			//}
+
+			// Ensure the current window is active
+			Window.Current.Activate();
         }
 
         /// <summary>

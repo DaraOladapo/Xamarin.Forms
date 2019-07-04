@@ -5,6 +5,8 @@ namespace Xamarin.Forms
 		Unsupported,
 		Phone,
 		Tablet,
-		Desktop
+		Desktop,
+		TV,
+		Watch
 	}
 }

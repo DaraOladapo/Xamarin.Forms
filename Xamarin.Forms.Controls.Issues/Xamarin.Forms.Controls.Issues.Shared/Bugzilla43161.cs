@@ -7,7 +7,7 @@ using Xamarin.UITest;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 
 	[Preserve(AllMembers = true)]
@@ -19,6 +19,7 @@ namespace Xamarin.Forms.Controls
 		const string ListView2 = "Accessory with RecycleElement";
 		const string ListView3 = "Accessory with RetainElement";
 
+		[Preserve(AllMembers = true)]
 		public class AccessoryViewCell : ViewCell
 		{
 			public AccessoryViewCell()
@@ -29,6 +30,7 @@ namespace Xamarin.Forms.Controls
 			}
 		}
 
+		[Preserve(AllMembers = true)]
 		public class AccessoryViewCellWithContextActions : AccessoryViewCell
 		{
 			public AccessoryViewCellWithContextActions()

@@ -15,24 +15,60 @@ using Android.Content;
 using Android.Content.Res;
 using Android.OS;
 using Android.Util;
+using Android.Views;
 using Xamarin.Forms.Internals;
 using Xamarin.Forms.Platform.Android;
 using Resource = Android.Resource;
 using Trace = System.Diagnostics.Trace;
+using ALayoutDirection = Android.Views.LayoutDirection;
+using System.ComponentModel;
 
 namespace Xamarin.Forms
 {
+	public struct ActivationOptions
+	{
+		public struct EffectScope
+		{
+			public string Name;
+			public ExportEffectAttribute[] Effects;
+		}
+
+		public ActivationOptions(Context activity, Bundle bundle, Assembly resourceAssembly)
+		{
+			this = default(ActivationOptions);
+			this.Activity = activity;
+			this.Bundle = bundle;
+			this.ResourceAssembly = resourceAssembly;
+		}
+		public Context Activity;
+		public Bundle Bundle;
+		public Assembly ResourceAssembly;
+		public HandlerAttribute[] Handlers;
+		public EffectScope[] EffectScopes;
+		public ActivationFlags Flags;
+	}
+
 	public static class Forms
 	{
+
 		const int TabletCrossover = 600;
 
-		static bool? s_supportsProgress;
-
 		static bool? s_isLollipopOrNewer;
+		static bool? s_isMarshmallowOrNewer;
 
+		[Obsolete("Context is obsolete as of version 2.5. Please use a local context instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public static Context Context { get; internal set; }
 
+		// One per process; does not change, suitable for loading resources (e.g., ResourceProvider)
+		internal static Context ApplicationContext { get; private set; }
+
 		public static bool IsInitialized { get; private set; }
+		static bool FlagsSet { get; set; }
+
+		static bool _ColorButtonNormalSet;
+		static Color _ColorButtonNormal = Color.Default;
+		public static Color ColorButtonNormalOverride { get; set; }
 
 		internal static bool IsLollipopOrNewer
 		{
@@ -44,41 +80,115 @@ namespace Xamarin.Forms
 			}
 		}
 
-		internal static bool SupportsProgress
+		internal static bool IsMarshmallowOrNewer
 		{
 			get
 			{
-				var activity = Context as Activity;
-				if (!s_supportsProgress.HasValue)
-				{
-					int progressCircularId = Context.Resources.GetIdentifier("progress_circular", "id", "android");
-					if (progressCircularId > 0 && activity != null)
-						s_supportsProgress = activity.FindViewById(progressCircularId) != null;
-					else
-						s_supportsProgress = true;
-				}
-				return s_supportsProgress.Value;
+				if (!s_isMarshmallowOrNewer.HasValue)
+					s_isMarshmallowOrNewer = (int)Build.VERSION.SdkInt >= 23;
+				return s_isMarshmallowOrNewer.Value;
 			}
 		}
 
-		internal static AndroidTitleBarVisibility TitleBarVisibility { get; private set; }
+		public static float GetFontSizeNormal(Context context)
+		{
+			float size = 50;
+			if (!IsLollipopOrNewer)
+				return size;
+
+			// Android 5.0+
+			//this doesn't seem to work
+			using (var value = new TypedValue())
+			{
+				if (context.Theme.ResolveAttribute(Resource.Attribute.TextSize, value, true)) 
+				{
+					size = value.Data;
+				}
+			}
+
+			return size;
+		}
+
+		public static Color GetColorButtonNormal(Context context)
+		{
+			if (!_ColorButtonNormalSet)
+			{
+				_ColorButtonNormal = GetButtonColor(context);
+				_ColorButtonNormalSet = true;
+			}
+
+			return _ColorButtonNormal;
+		}
 
 		// Provide backwards compat for Forms.Init and AndroidActivity
 		// Why is bundle a param if never used?
 		public static void Init(Context activity, Bundle bundle)
 		{
-			Assembly resourceAssembly = Assembly.GetCallingAssembly();
-			SetupInit(activity, resourceAssembly);
+			Assembly resourceAssembly;
+
+			Profile.FrameBegin("Assembly.GetCallingAssembly");
+			resourceAssembly = Assembly.GetCallingAssembly();
+			Profile.FrameEnd();
+
+			Profile.FrameBegin();
+			SetupInit(activity, resourceAssembly, null);
+			Profile.FrameEnd();
 		}
 
 		public static void Init(Context activity, Bundle bundle, Assembly resourceAssembly)
 		{
-			SetupInit(activity, resourceAssembly);
+			Profile.FrameBegin();
+			SetupInit(activity, resourceAssembly, null);
+			Profile.FrameEnd();
 		}
 
+		public static void Initialize(ActivationOptions activation)
+		{
+			Profile.FrameBegin();
+			SetupInit(
+				activation.Activity,
+				activation.ResourceAssembly,
+				activation
+			);
+			Profile.FrameEnd();
+		}
+
+		/// <summary>
+		/// Sets title bar visibility programmatically. Must be called after Xamarin.Forms.Forms.Init() method
+		/// </summary>
+		/// <param name="visibility">Title bar visibility enum</param>
+		[Obsolete("SetTitleBarVisibility(AndroidTitleBarVisibility) is obsolete as of version 2.5. "
+			+ "Please use SetTitleBarVisibility(Activity, AndroidTitleBarVisibility) instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public static void SetTitleBarVisibility(AndroidTitleBarVisibility visibility)
 		{
-			TitleBarVisibility = visibility;
+			if (Context.GetActivity() == null)
+				throw new NullReferenceException("Must be called after Xamarin.Forms.Forms.Init() method");
+
+			if (visibility == AndroidTitleBarVisibility.Never)
+			{
+				if (!Context.GetActivity().Window.Attributes.Flags.HasFlag(WindowManagerFlags.Fullscreen))
+					Context.GetActivity().Window.AddFlags(WindowManagerFlags.Fullscreen);
+			}
+			else
+			{
+				if (Context.GetActivity().Window.Attributes.Flags.HasFlag(WindowManagerFlags.Fullscreen))
+					Context.GetActivity().Window.ClearFlags(WindowManagerFlags.Fullscreen);
+			}
+		}
+
+		public static void SetTitleBarVisibility(Activity activity, AndroidTitleBarVisibility visibility)
+		{
+			if (visibility == AndroidTitleBarVisibility.Never)
+			{
+				if (!activity.Window.Attributes.Flags.HasFlag(WindowManagerFlags.Fullscreen))
+					activity.Window.AddFlags(WindowManagerFlags.Fullscreen);
+			}
+			else
+			{
+				if (activity.Window.Attributes.Flags.HasFlag(WindowManagerFlags.Fullscreen))
+					activity.Window.ClearFlags(WindowManagerFlags.Fullscreen);
+			}
 		}
 
 		public static event EventHandler<ViewInitializedEventArgs> ViewInitialized;
@@ -90,19 +200,47 @@ namespace Xamarin.Forms
 				viewInitialized(self, new ViewInitializedEventArgs { View = self, NativeView = nativeView });
 		}
 
-		static void SetupInit(Context activity, Assembly resourceAssembly)
+		static void SetupInit(
+			Context activity,
+			Assembly resourceAssembly,
+			ActivationOptions? maybeOptions = null
+		)
 		{
+			Profile.FrameBegin();
+			if (!IsInitialized)
+			{
+				// Only need to get this once; it won't change
+				ApplicationContext = activity.ApplicationContext;
+			}
+
+#pragma warning disable 618 // Still have to set this up so obsolete code can function
 			Context = activity;
-
-			ResourceManager.Init(resourceAssembly);
-
-			Color.Accent = GetAccentColor();
+#pragma warning restore 618
 
 			if (!IsInitialized)
-				Log.Listeners.Add(new DelegateLogListener((c, m) => Trace.WriteLine(m, c)));
+			{
+				// Only need to do this once
+				Profile.FramePartition("ResourceManager.Init");
+				ResourceManager.Init(resourceAssembly);
+			}
 
-			Device.OS = TargetPlatform.Android;
-			Device.PlatformServices = new AndroidPlatformServices();
+			Profile.FramePartition("Color.SetAccent()");
+			// We want this to be updated when we have a new activity (e.g. on a configuration change)
+			// This could change if the UI mode changes (e.g., if night mode is enabled)
+			Color.SetAccent(GetAccentColor(activity));
+			_ColorButtonNormalSet = false;
+
+			if (!IsInitialized)
+			{
+				// Only need to do this once
+				Profile.FramePartition("Log.Listeners");
+				Internals.Log.Listeners.Add(new DelegateLogListener((c, m) => Trace.WriteLine(m, c)));
+			}
+
+			// We want this to be updated when we have a new activity (e.g. on a configuration change)
+			// because AndroidPlatformServices needs a current activity to launch URIs from
+			Profile.FramePartition("Device.PlatformServices");
+			Device.PlatformServices = new AndroidPlatformServices(activity);
 
 			// use field and not property to avoid exception in getter
 			if (Device.info != null)
@@ -111,41 +249,105 @@ namespace Xamarin.Forms
 				Device.info = null;
 			}
 
-			// probably could be done in a better way
-			var deviceInfoProvider = activity as IDeviceInfoProvider;
-			if (deviceInfoProvider != null)
-				Device.Info = new AndroidDeviceInfo(deviceInfoProvider);
+			// We want this to be updated when we have a new activity (e.g. on a configuration change)
+			// because Device.Info watches for orientation changes and we need a current activity for that
+			Profile.FramePartition("new AndroidDeviceInfo(activity)");
+			Device.Info = new AndroidDeviceInfo(activity);
+			Device.SetFlags(s_flags);
+
+			Profile.FramePartition("AndroidTicker");
 
 			var ticker = Ticker.Default as AndroidTicker;
 			if (ticker != null)
 				ticker.Dispose();
-			Ticker.Default = new AndroidTicker();
+			Ticker.SetDefault(new AndroidTicker());
+
+			Profile.FramePartition("RegisterAll");
 
 			if (!IsInitialized)
 			{
-				Registrar.RegisterAll(new[] { typeof(ExportRendererAttribute), typeof(ExportCellAttribute), typeof(ExportImageSourceHandlerAttribute) });
+				if (maybeOptions.HasValue)
+				{
+					var options = maybeOptions.Value;
+					var handlers = options.Handlers;
+					var flags = options.Flags;
+					var effectScopes = options.EffectScopes;
+
+					// renderers
+					Registrar.RegisterRenderers(handlers);
+
+					// effects
+					if (effectScopes != null)
+					{
+						for (var i = 0; i < effectScopes.Length; i++)
+						{
+							var effectScope = effectScopes[0];
+							Registrar.RegisterEffects(effectScope.Name, effectScope.Effects);
+						}
+					}
+
+					// css
+					var noCss = (flags & ActivationFlags.NoCss) != 0;
+					if (!noCss)
+						Registrar.RegisterStylesheets();
+				}
+				else
+				{
+					// Only need to do this once
+					Registrar.RegisterAll(new[] {
+						typeof(ExportRendererAttribute),
+						typeof(ExportCellAttribute),
+						typeof(ExportImageSourceHandlerAttribute)
+					});
+				}
 			}
 
-			int minWidthDp = Context.Resources.Configuration.SmallestScreenWidthDp;
+			Profile.FramePartition("Epilog");
+			// This could change as a result of a config change, so we need to check it every time
+			int minWidthDp = activity.Resources.Configuration.SmallestScreenWidthDp;
+			Device.SetIdiom(minWidthDp >= TabletCrossover ? TargetIdiom.Tablet : TargetIdiom.Phone);
 
-			Device.Idiom = minWidthDp >= TabletCrossover ? TargetIdiom.Tablet : TargetIdiom.Phone;
+			if (Build.VERSION.SdkInt >= BuildVersionCodes.JellyBeanMr1)
+				Device.SetFlowDirection(activity.Resources.Configuration.LayoutDirection.ToFlowDirection());
 
 			if (ExpressionSearch.Default == null)
 				ExpressionSearch.Default = new AndroidExpressionSearch();
 
 			IsInitialized = true;
+			Profile.FrameEnd();
 		}
 
-		static Color GetAccentColor()
+		static IReadOnlyList<string> s_flags;
+		public static IReadOnlyList<string> Flags => s_flags ?? (s_flags = new List<string>().AsReadOnly());
+
+		public static void SetFlags(params string[] flags)
+		{
+			if (FlagsSet)
+			{
+				// Don't try to set the flags again if they've already been set
+				// (e.g., during a configuration change where OnCreate runs again)
+				return;
+			}
+
+			if (IsInitialized)
+			{
+				throw new InvalidOperationException($"{nameof(SetFlags)} must be called before {nameof(Init)}");
+			}
+
+			s_flags = flags.ToList().AsReadOnly();
+			FlagsSet = true;
+		}
+
+		static Color GetAccentColor(Context context)
 		{
 			Color rc;
 			using (var value = new TypedValue())
 			{
-				if (Context.Theme.ResolveAttribute(global::Android.Resource.Attribute.ColorAccent, value, true))	// Android 5.0+
+				if (context.Theme.ResolveAttribute(global::Android.Resource.Attribute.ColorAccent, value, true) && Forms.IsLollipopOrNewer) // Android 5.0+
 				{
 					rc = Color.FromUint((uint)value.Data);
 				}
-				else if(Context.Theme.ResolveAttribute(Context.Resources.GetIdentifier("colorAccent", "attr", Context.PackageName), value, true))	// < Android 5.0
+				else if (context.Theme.ResolveAttribute(context.Resources.GetIdentifier("colorAccent", "attr", context.PackageName), value, true))  // < Android 5.0
 				{
 					rc = Color.FromUint((uint)value.Data);
 				}
@@ -169,25 +371,48 @@ namespace Xamarin.Forms
 			return rc;
 		}
 
+		static Color GetButtonColor(Context context)
+		{
+			Color rc = ColorButtonNormalOverride;
+
+			if (ColorButtonNormalOverride == Color.Default)
+			{
+				using (var value = new TypedValue())
+				{
+					if (context.Theme.ResolveAttribute(global::Android.Resource.Attribute.ColorButtonNormal, value, true) && Forms.IsLollipopOrNewer) // Android 5.0+
+					{
+						rc = Color.FromUint((uint)value.Data);
+					}
+					else if (context.Theme.ResolveAttribute(context.Resources.GetIdentifier("colorButtonNormal", "attr", context.PackageName), value, true))  // < Android 5.0
+					{
+						rc = Color.FromUint((uint)value.Data);
+					}
+				}
+			}
+			return rc;
+		}
+
 		class AndroidDeviceInfo : DeviceInfo
 		{
-			readonly IDeviceInfoProvider _formsActivity;
-			readonly Size _pixelScreenSize;
-			readonly double _scalingFactor;
+			bool _disposed;
+			readonly Context _formsActivity;
+			Size _scaledScreenSize;
+			Size _pixelScreenSize;
+			double _scalingFactor;
 
 			Orientation _previousOrientation = Orientation.Undefined;
 
-			public AndroidDeviceInfo(IDeviceInfoProvider formsActivity)
+			public AndroidDeviceInfo(Context formsActivity)
 			{
-				_formsActivity = formsActivity;
-				CheckOrientationChanged(_formsActivity.Resources.Configuration.Orientation);
-				formsActivity.ConfigurationChanged += ConfigurationChanged;
+				CheckOrientationChanged(formsActivity);
 
-				using (DisplayMetrics display = formsActivity.Resources.DisplayMetrics)
+				// This will not be an implementation of IDeviceInfoProvider when running inside the context
+				// of layoutlib, which is what the Android Designer does.
+				// It also won't be IDeviceInfoProvider when using Page Embedding
+				if (formsActivity is IDeviceInfoProvider)
 				{
-					_scalingFactor = display.Density;
-					_pixelScreenSize = new Size(display.WidthPixels, display.HeightPixels);
-					ScaledScreenSize = new Size(_pixelScreenSize.Width / _scalingFactor, _pixelScreenSize.Width / _scalingFactor);
+					_formsActivity = formsActivity;
+					((IDeviceInfoProvider)_formsActivity).ConfigurationChanged += ConfigurationChanged;
 				}
 			}
 
@@ -196,30 +421,61 @@ namespace Xamarin.Forms
 				get { return _pixelScreenSize; }
 			}
 
-			public override Size ScaledScreenSize { get; }
+			public override Size ScaledScreenSize => _scaledScreenSize;
 
 			public override double ScalingFactor
 			{
 				get { return _scalingFactor; }
 			}
 
+
+			public override double DisplayRound(double value) =>
+				Math.Round(ScalingFactor * value) / ScalingFactor;
+
 			protected override void Dispose(bool disposing)
 			{
-				_formsActivity.ConfigurationChanged -= ConfigurationChanged;
+				if (_disposed)
+				{
+					return;
+				}
+
+				_disposed = true;
+
+				if (disposing)
+				{
+					var provider = _formsActivity as IDeviceInfoProvider;
+					if (provider != null)
+						provider.ConfigurationChanged -= ConfigurationChanged;
+				}
+
 				base.Dispose(disposing);
 			}
 
-			void CheckOrientationChanged(Orientation orientation)
+			void UpdateScreenMetrics(Context formsActivity)
 			{
+				using (DisplayMetrics display = formsActivity.Resources.DisplayMetrics)
+				{
+					_scalingFactor = display.Density;
+					_pixelScreenSize = new Size(display.WidthPixels, display.HeightPixels);
+					_scaledScreenSize = new Size(_pixelScreenSize.Width / _scalingFactor, _pixelScreenSize.Height / _scalingFactor);
+				}
+			}
+
+			void CheckOrientationChanged(Context formsActivity)
+			{
+				var orientation = formsActivity.Resources.Configuration.Orientation;
+
 				if (!_previousOrientation.Equals(orientation))
 					CurrentOrientation = orientation.ToDeviceOrientation();
 
 				_previousOrientation = orientation;
+
+				UpdateScreenMetrics(formsActivity);
 			}
 
 			void ConfigurationChanged(object sender, EventArgs e)
 			{
-				CheckOrientationChanged(_formsActivity.Resources.Configuration.Orientation);
+				CheckOrientationChanged(_formsActivity);
 			}
 		}
 
@@ -263,6 +519,13 @@ namespace Xamarin.Forms
 			double _smallSize;
 
 			static Handler s_handler;
+
+			readonly Context _context;
+
+			public AndroidPlatformServices(Context context)
+			{
+				_context = context;
+			}
 
 			public void BeginInvokeOnMainThread(Action action)
 			{
@@ -330,6 +593,16 @@ namespace Xamarin.Forms
 							return 14;
 						case NamedSize.Large:
 							return 18;
+						case NamedSize.Body:
+							return 16;
+						case NamedSize.Caption:
+							return 12;
+						case NamedSize.Header:
+							return 96;
+						case NamedSize.Subtitle:
+							return 16;
+						case NamedSize.Title:
+							return 24;
 						default:
 							throw new ArgumentOutOfRangeException("size");
 					}
@@ -352,6 +625,16 @@ namespace Xamarin.Forms
 						return _mediumSize;
 					case NamedSize.Large:
 						return _largeSize;
+					case NamedSize.Body:
+						return 16;
+					case NamedSize.Caption:
+						return 12;
+					case NamedSize.Header:
+						return 96;
+					case NamedSize.Subtitle:
+						return 16;
+					case NamedSize.Title:
+						return 24;
 					default:
 						throw new ArgumentOutOfRangeException("size");
 				}
@@ -361,7 +644,14 @@ namespace Xamarin.Forms
 			{
 				using (var client = new HttpClient())
 				using (HttpResponseMessage response = await client.GetAsync(uri, cancellationToken))
+				{
+					if (!response.IsSuccessStatusCode)
+					{
+						Internals.Log.Warning("HTTP Request", $"Could not retrieve {uri}, status code {response.StatusCode}");
+						return null;
+					}
 					return await response.Content.ReadAsStreamAsync();
+				}
 			}
 
 			public IIsolatedStorageFile GetUserStoreForApplication()
@@ -377,40 +667,41 @@ namespace Xamarin.Forms
 				}
 			}
 
+			public string RuntimePlatform => Device.Android;
+
 			public void OpenUriAction(Uri uri)
 			{
 				global::Android.Net.Uri aUri = global::Android.Net.Uri.Parse(uri.ToString());
 				var intent = new Intent(Intent.ActionView, aUri);
-				Context.StartActivity(intent);
+				intent.SetFlags(ActivityFlags.ClearTop);
+				intent.SetFlags(ActivityFlags.NewTask);
+
+				// This seems to work fine even if the context has been destroyed (while another activity is in the
+				// foreground). If we run into a situation where that's not the case, we'll have to do some work to
+				// make sure this uses the active activity when launching the Intent
+				_context.StartActivity(intent);
 			}
 
 			public void StartTimer(TimeSpan interval, Func<bool> callback)
 			{
-				Timer timer = null;
-				bool invoking = false;
-				TimerCallback onTimeout = o =>
+				var handler = new Handler(Looper.MainLooper);
+				handler.PostDelayed(() =>
 				{
-					if (!invoking)
-					{
-						invoking = true;
-						BeginInvokeOnMainThread(() =>
-						{
-							if (!callback())
-								timer.Dispose();
-							invoking = false;
-						});
-					}
-				};
-				timer = new Timer(onTimeout, null, interval, interval);
+					if (callback())
+						StartTimer(interval, callback);
+
+					handler.Dispose();
+					handler = null;
+				}, (long)interval.TotalMilliseconds);
 			}
 
 			double ConvertTextAppearanceToSize(int themeDefault, int deviceDefault, double defaultValue)
 			{
 				double myValue;
 
-				if (TryGetTextAppearance(themeDefault, out myValue))
+				if (TryGetTextAppearance(themeDefault, out myValue) && myValue > 0)
 					return myValue;
-				if (TryGetTextAppearance(deviceDefault, out myValue))
+				if (TryGetTextAppearance(deviceDefault, out myValue) && myValue > 0)
 					return myValue;
 				return defaultValue;
 			}
@@ -422,20 +713,20 @@ namespace Xamarin.Forms
 				return 'a' + v - 10;
 			}
 
-			static bool TryGetTextAppearance(int appearance, out double val)
+			bool TryGetTextAppearance(int appearance, out double val)
 			{
 				val = 0;
 				try
 				{
 					using (var value = new TypedValue())
 					{
-						if (Context.Theme.ResolveAttribute(appearance, value, true))
+						if (_context.Theme.ResolveAttribute(appearance, value, true))
 						{
 							var textSizeAttr = new[] { Resource.Attribute.TextSize };
 							const int indexOfAttrTextSize = 0;
-							using (TypedArray array = Context.ObtainStyledAttributes(value.Data, textSizeAttr))
+							using (TypedArray array = _context.ObtainStyledAttributes(value.Data, textSizeAttr))
 							{
-								val = Context.FromPixels(array.GetDimensionPixelSize(indexOfAttrTextSize, -1));
+								val = _context.FromPixels(array.GetDimensionPixelSize(indexOfAttrTextSize, -1));
 								return true;
 							}
 						}
@@ -443,39 +734,19 @@ namespace Xamarin.Forms
 				}
 				catch (Exception ex)
 				{
-					Log.Warning("Xamarin.Forms.Platform.Android.AndroidPlatformServices", "Error retrieving text appearance: {0}", ex);
+					Internals.Log.Warning("Xamarin.Forms.Platform.Android.AndroidPlatformServices", "Error retrieving text appearance: {0}", ex);
 				}
 				return false;
 			}
 
-			public class _Timer : ITimer
+			public void QuitApplication()
 			{
-				readonly Timer _timer;
+				Internals.Log.Warning(nameof(AndroidPlatformServices), "Platform doesn't implement QuitApp");
+			}
 
-				public _Timer(Timer timer)
-				{
-					_timer = timer;
-				}
-
-				public void Change(int dueTime, int period)
-				{
-					_timer.Change(dueTime, period);
-				}
-
-				public void Change(long dueTime, long period)
-				{
-					_timer.Change(dueTime, period);
-				}
-
-				public void Change(TimeSpan dueTime, TimeSpan period)
-				{
-					_timer.Change(dueTime, period);
-				}
-
-				public void Change(uint dueTime, uint period)
-				{
-					_timer.Change(dueTime, period);
-				}
+			public SizeRequest GetNativeSize(VisualElement view, double widthConstraint, double heightConstraint)
+			{
+				return Platform.Android.Platform.GetNativeSize(view, widthConstraint, heightConstraint);
 			}
 
 			public class _IsolatedStorageFile : IIsolatedStorageFile
@@ -510,13 +781,13 @@ namespace Xamarin.Forms
 
 				public Task<Stream> OpenFileAsync(string path, FileMode mode, FileAccess access)
 				{
-					Stream stream = _isolatedStorageFile.OpenFile(path, (System.IO.FileMode)mode, (System.IO.FileAccess)access);
+					Stream stream = _isolatedStorageFile.OpenFile(path, mode, access);
 					return Task.FromResult(stream);
 				}
 
 				public Task<Stream> OpenFileAsync(string path, FileMode mode, FileAccess access, FileShare share)
 				{
-					Stream stream = _isolatedStorageFile.OpenFile(path, (System.IO.FileMode)mode, (System.IO.FileAccess)access, (System.IO.FileShare)share);
+					Stream stream = _isolatedStorageFile.OpenFile(path, mode, access, share);
 					return Task.FromResult(stream);
 				}
 			}

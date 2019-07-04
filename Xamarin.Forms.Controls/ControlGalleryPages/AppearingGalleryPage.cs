@@ -15,6 +15,8 @@ namespace Xamarin.Forms.Controls
 
 		public AppearingGalleryPage ()
 		{
+			App.AppearingMessages.Clear();
+
 			var initalPage = new AppearingPage (1);
 			var initalPage2 = new AppearingPage (2);
 
@@ -69,13 +71,13 @@ namespace Xamarin.Forms.Controls
 			{
 				page.Appearing += (object sender, EventArgs e) => {
 					_isAppearingFired++;
-					App.AppearingMessages.Add ($"Appearing {page.Title}");
+					App.AppearingMessages.Insert (0, $"Appearing {page.Title}");
 					Debug.WriteLine ($"Appearing {page.Title}");
 				};
 
 				page.Disappearing += (object sender, EventArgs e) => {
 					_isDisappearingFired++;
-					App.AppearingMessages.Add ($"Disappearing {page.Title}");
+					App.AppearingMessages.Insert (0, $"Disappearing {page.Title}");
 					Debug.WriteLine( $"Disappearing {page.Title}");
 				};
 			}
@@ -83,6 +85,10 @@ namespace Xamarin.Forms.Controls
 
 		class AppearingPage : ContentPage
 		{
+			static int added_carouselpage_id = 3;
+			static int added_tabpage_id = 3;
+
+
 			int _theId;
 			ListView _listMessages;
 			public AppearingPage (int id)
@@ -96,6 +102,22 @@ namespace Xamarin.Forms.Controls
 					Children = {
 						new Label { Text = $"Hello Appearing {_theId} page" },
 						new Button { Text = "Push new Page", Command = new Command ( async () => { await Navigation.PushAsync( new AppearingPage(2)); }) },
+						new Button { Text = "Add new Page",
+							Command = new Command ( () => 
+							{
+								switch (Parent)
+								{
+									case CarouselPage cp:
+										cp.Children.Add( new AppearingPage(added_carouselpage_id++));
+										break;
+									case TabbedPage tp:
+										tp.Children.Add( new AppearingPage(added_tabpage_id++));
+										break;
+									default:
+									break;
+								}
+							})
+						},
 						new Button { Text = "Pop page", Command = new Command ( async () => { await Navigation.PopAsync(); }) },
 						new Button { Text = "Pop to root", Command = new Command ( async () => { await Navigation.PopToRootAsync(); }) },
 						new Button { Text = "Change Main Page", Command = new Command ( () => { 
@@ -109,7 +131,8 @@ namespace Xamarin.Forms.Controls
 			protected override void OnAppearing ()
 			{
 				base.OnAppearing ();
-				Device.StartTimer (new TimeSpan (200), () => {
+
+				Device.StartTimer (TimeSpan.FromMilliseconds(750), () => {
 					_listMessages.ItemsSource = App.AppearingMessages;
 					return false;
 				});

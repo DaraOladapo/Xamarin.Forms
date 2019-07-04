@@ -1,16 +1,21 @@
 ﻿using System;
-
 using Xamarin.Forms.CustomAttributes;
 using System.Collections.ObjectModel;
 using Xamarin.Forms.Internals;
+
 #if UITEST
+using Xamarin.Forms.Core.UITests;
 using Xamarin.UITest.iOS;
 using Xamarin.UITest;
 using NUnit.Framework;
 #endif
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
+#if UITEST
+	[Category(UITestCategories.ListView)]
+#endif
+
 	[Preserve (AllMembers = true)]
 	[Issue (IssueTracker.Bugzilla, 31114, "iOS ContextAction leaves blank line after swiping in ListView")]
 	public class Bugzilla31114 : TestContentPage 
@@ -372,7 +377,7 @@ namespace Xamarin.Forms.Controls
 						}
 					}
 				}
-				catch (Exception ex)
+				catch 
 				{
 				}
 			}
@@ -391,7 +396,7 @@ namespace Xamarin.Forms.Controls
 							RefreshFromQuickComplete(this, new ListItemEventArgs(item));
 					}
 				}
-				catch (Exception ex)
+				catch
 				{
 
 				}

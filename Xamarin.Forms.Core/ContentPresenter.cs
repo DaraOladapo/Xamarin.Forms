@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 
 namespace Xamarin.Forms
 {
@@ -28,7 +29,8 @@ namespace Xamarin.Forms
 			}
 		}
 
-		[Obsolete("Use OnMeasure")]
+		[Obsolete("OnSizeRequest is obsolete as of version 2.2.0. Please use OnMeasure instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		protected override SizeRequest OnSizeRequest(double widthConstraint, double heightConstraint)
 		{
 			double widthRequest = WidthRequest;

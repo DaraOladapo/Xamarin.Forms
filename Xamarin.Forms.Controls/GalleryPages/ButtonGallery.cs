@@ -10,10 +10,12 @@ namespace Xamarin.Forms.Controls
 	{
 		public ButtonGallery ()
 		{
+			//ShellAppearance.SetNavBarVisible(this, false);
+			Shell.SetSearchHandler(this, new SearchHandler() { SearchBoxVisibility = SearchBoxVisibility.Collapsible });
 			BackgroundColor = new Color (0.9);
 
 			var normal = new Button { Text = "Normal Button" };
-			normal.Effects.Add (Effect.Resolve ("XamControl.BorderEffect"));
+			normal.Effects.Add (Effect.Resolve ($"{Issues.Effects.ResolutionGroupName}.BorderEffect"));
 
 			var disabled = new Button { Text = "Disabled Button"};
 			var disabledswitch = new Switch ();
@@ -31,8 +33,20 @@ namespace Xamarin.Forms.Controls
 			var click = new Button { Text = "Click Button" };
 			var rotate = new Button { Text = "Rotate Button" };
 			var transparent = new Button { Text = "Transparent Button" };
+			string fontName;
+			switch (Device.RuntimePlatform) {
+			default:
+			case Device.iOS:
+				fontName = "Georgia";
+				break;
+			case Device.Android:
+				fontName = "sans-serif-light";
+				break;
+			case Device.UWP:
+				fontName = "Comic Sans MS";
+				break;
+			}
 
-			var fontName = Device.OnPlatform ("Georgia", "sans-serif-light", "Comic Sans MS");
 			var font = Font.OfSize (fontName, NamedSize.Medium);
 
 			var themedButton = new Button {
@@ -47,13 +61,15 @@ namespace Xamarin.Forms.Controls
 				BorderColor = Color.Black,
 				BackgroundColor = Color.Purple,
 				BorderWidth = 5,
+#pragma warning disable 0618
 				BorderRadius = 5
+#pragma warning restore
 			};
 			var timer = new Button { Text = "Timer" };
 			var busy = new Button { Text = "Toggle Busy" };
 			var alert = new Button { Text = "Alert" };
 			var alertSingle = new Button {Text = "Alert Single"};
-			var image = new Button { Text = "Image Button", Image = new FileImageSource {File = "bank.png"}, BackgroundColor = Color.Blue.WithLuminosity (.8) };
+			var image = new Button { Text = "Image Button", ImageSource = new FileImageSource {File = "bank.png"}, BackgroundColor = Color.Blue.WithLuminosity (.8) };
 
 			themedButton.Clicked += (sender, args) => themedButton.Font = Font.Default;
 
@@ -82,6 +98,7 @@ namespace Xamarin.Forms.Controls
 			borderButton.Clicked += (sender, args) => borderButton.BackgroundColor = Color.Default;
 
 			Content = new ScrollView {
+				BackgroundColor = Color.Red,
 				Content = new StackLayout {
 					Padding = new Size (20, 20),
 					Children = {
@@ -101,6 +118,7 @@ namespace Xamarin.Forms.Controls
 						borderButton,
 						new Button {Text = "Thin Border", BorderWidth = 1, BackgroundColor=Color.White, BorderColor = Color.Black, TextColor = Color.Black},
 						new Button {Text = "Thinner Border", BorderWidth = .5, BackgroundColor=Color.White, BorderColor = Color.Black, TextColor = Color.Black},
+						new Button {Text = "BorderWidth == 0", BorderWidth = 0, BackgroundColor=Color.White, BorderColor = Color.Black, TextColor = Color.Black},
 						timer,
 						busy,
 						alert,

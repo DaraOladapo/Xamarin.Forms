@@ -1,8 +1,9 @@
 ﻿using System;
+using System.ComponentModel;
 
 namespace Xamarin.Forms.Maps
 {
-	public sealed class Pin : BindableObject
+	public class Pin : Element
 	{
 		public static readonly BindableProperty TypeProperty = BindableProperty.Create("Type", typeof(PinType), typeof(Pin), default(PinType));
 
@@ -10,9 +11,9 @@ namespace Xamarin.Forms.Maps
 
 		public static readonly BindableProperty AddressProperty = BindableProperty.Create("Address", typeof(string), typeof(Pin), default(string));
 
-		// introduced to store the unique id for Android markers
-
-		string _label;
+		public static readonly BindableProperty LabelProperty = BindableProperty.Create("Label", typeof(string), typeof(Pin), default(string));
+		private object _markerId;
+		private object _id;
 
 		public string Address
 		{
@@ -22,14 +23,8 @@ namespace Xamarin.Forms.Maps
 
 		public string Label
 		{
-			get { return _label; }
-			set
-			{
-				if (_label == value)
-					return;
-				_label = value;
-				OnPropertyChanged();
-			}
+			get { return (string)GetValue(LabelProperty); }
+			set { SetValue(LabelProperty, value); }
 		}
 
 		public Position Position
@@ -44,7 +39,31 @@ namespace Xamarin.Forms.Maps
 			set { SetValue(TypeProperty, value); }
 		}
 
-		internal object Id { get; set; }
+
+		// introduced to store the unique id for Android markers
+		[Obsolete("This property is obsolete as of 4.0.0. Please use MarkerId instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
+		public new object Id
+		{
+			get => _id;
+			set
+			{
+				_id = value;
+				_markerId = value;
+			}
+		}
+
+		[EditorBrowsable(EditorBrowsableState.Never)]
+		public object MarkerId
+		{
+			get => _markerId;
+			set
+			{
+				_markerId = value;
+				// Keep Id working just in case someone has taken a dependency on it
+				_id = value;
+			}
+		}
 
 		public event EventHandler Clicked;
 
@@ -81,7 +100,8 @@ namespace Xamarin.Forms.Maps
 			return !Equals(left, right);
 		}
 
-		internal bool SendTap()
+		[EditorBrowsable(EditorBrowsableState.Never)]
+		public bool SendTap()
 		{
 			EventHandler handler = Clicked;
 			if (handler == null)

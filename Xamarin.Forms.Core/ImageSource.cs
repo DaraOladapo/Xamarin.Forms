@@ -20,6 +20,8 @@ namespace Xamarin.Forms
 		{
 		}
 
+		public virtual bool IsEmpty => false;
+
 		protected CancellationTokenSource CancellationTokenSource
 		{
 			get { return _cancellationTokenSource; }
@@ -67,6 +69,9 @@ namespace Xamarin.Forms
 
 		public static ImageSource FromResource(string resource, Assembly sourceAssembly = null)
 		{
+#if NETSTANDARD2_0
+			sourceAssembly = sourceAssembly ?? Assembly.GetCallingAssembly();
+#else
 			if (sourceAssembly == null)
 			{
 				MethodInfo callingAssemblyMethod = typeof(Assembly).GetTypeInfo().GetDeclaredMethod("GetCallingAssembly");
@@ -76,11 +81,11 @@ namespace Xamarin.Forms
 				}
 				else
 				{
-					Log.Warning("Warning", "Can not find CallingAssembly, pass resolvingType to FromResource to ensure proper resolution");
+					Internals.Log.Warning("Warning", "Can not find CallingAssembly, pass resolvingType to FromResource to ensure proper resolution");
 					return null;
 				}
 			}
-
+#endif
 			return FromStream(() => sourceAssembly.GetManifestResourceStream(resource));
 		}
 
@@ -104,6 +109,9 @@ namespace Xamarin.Forms
 
 		public static implicit operator ImageSource(Uri uri)
 		{
+			if (uri == null)
+				return null;
+
 			if (!uri.IsAbsoluteUri)
 				throw new ArgumentException("uri is relative");
 			return FromUri(uri);
@@ -139,8 +147,8 @@ namespace Xamarin.Forms
 
 		internal event EventHandler SourceChanged
 		{
-			add { _weakEventManager.AddEventHandler(nameof(SourceChanged), value); }
-			remove { _weakEventManager.RemoveEventHandler(nameof(SourceChanged), value);}
+			add { _weakEventManager.AddEventHandler(value); }
+			remove { _weakEventManager.RemoveEventHandler(value); }
 		}
 	}
 }

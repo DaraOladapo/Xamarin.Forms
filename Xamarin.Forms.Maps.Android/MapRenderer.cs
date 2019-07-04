@@ -5,17 +5,18 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
+using Android.Content;
 using Android.Gms.Maps;
 using Android.Gms.Maps.Model;
 using Android.OS;
 using Java.Lang;
+using Xamarin.Forms.Internals;
 using Xamarin.Forms.Platform.Android;
 using Math = System.Math;
 
 namespace Xamarin.Forms.Maps.Android
 {
-	public class MapRenderer : ViewRenderer<Map, MapView>,
-		GoogleMap.IOnCameraChangeListener
+	public class MapRenderer : ViewRenderer<Map, MapView>, GoogleMap.IOnCameraMoveListener, IOnMapReadyCallback
 	{
 		const string MoveMessageName = "MapMoveToRegion";
 
@@ -27,6 +28,13 @@ namespace Xamarin.Forms.Maps.Android
 
 		List<Marker> _markers;
 
+		public MapRenderer(Context context) : base(context)
+		{
+			AutoPackage = false;
+		}
+
+		[Obsolete("This constructor is obsolete as of version 2.5. Please use MapRenderer(Context) instead.")]
+		[EditorBrowsable(EditorBrowsableState.Never)]
 		public MapRenderer()
 		{
 			AutoPackage = false;
@@ -34,17 +42,11 @@ namespace Xamarin.Forms.Maps.Android
 
 		protected Map Map => Element;
 
-#pragma warning disable 618
-		protected GoogleMap NativeMap => Control.Map;
-#pragma warning restore 618
+		protected GoogleMap NativeMap;
+
 		internal static Bundle Bundle
 		{
 			set { s_bundle = value; }
-		}
-
-		public void OnCameraChange(CameraPosition pos)
-		{
-			UpdateVisibleRegion(pos.Target);
 		}
 
 		public override SizeRequest GetDesiredSize(int widthConstraint, int heightConstraint)
@@ -72,15 +74,22 @@ namespace Xamarin.Forms.Maps.Android
 				{
 					MessagingCenter.Unsubscribe<Map, MapSpan>(this, MoveMessageName);
 					((ObservableCollection<Pin>)Element.Pins).CollectionChanged -= OnCollectionChanged;
+
+					foreach (Pin pin in Element.Pins)
+					{
+						pin.PropertyChanged -= PinOnPropertyChanged;
+					}
 				}
 
 				if (NativeMap != null)
- 				{
- 					NativeMap.MyLocationEnabled = false;
- 					NativeMap.SetOnCameraChangeListener(null);
- 					NativeMap.InfoWindowClick -= MapOnMarkerClick;
- 					NativeMap.Dispose();
-  				}		  				
+				{
+					NativeMap.MyLocationEnabled = false;
+					NativeMap.SetOnCameraMoveListener(null);
+					NativeMap.InfoWindowClick -= MapOnMarkerClick;
+					NativeMap.MapClick -= OnMapClick;
+					NativeMap.Dispose();
+					NativeMap = null;
+				}
 
 				Control?.OnDestroy();
 			}
@@ -104,34 +113,25 @@ namespace Xamarin.Forms.Maps.Android
 				Map oldMapModel = e.OldElement;
 				((ObservableCollection<Pin>)oldMapModel.Pins).CollectionChanged -= OnCollectionChanged;
 
+				foreach (Pin pin in oldMapModel.Pins)
+				{
+					pin.PropertyChanged -= PinOnPropertyChanged;
+				}
+
 				MessagingCenter.Unsubscribe<Map, MapSpan>(this, MoveMessageName);
 
-#pragma warning disable 618
-				if (oldMapView.Map != null)
+				if (NativeMap != null)
 				{
-#pragma warning restore 618
-
-#pragma warning disable 618
-					oldMapView.Map.SetOnCameraChangeListener(null);
-#pragma warning restore 618
+					NativeMap.SetOnCameraMoveListener(null);
 					NativeMap.InfoWindowClick -= MapOnMarkerClick;
+					NativeMap.MapClick -= OnMapClick;
+					NativeMap = null;
 				}
 
 				oldMapView.Dispose();
 			}
 
-			GoogleMap map = NativeMap;
-			if (map != null)
-			{
-				map.SetOnCameraChangeListener(this);
-				NativeMap.InfoWindowClick += MapOnMarkerClick;
-
-				map.UiSettings.ZoomControlsEnabled = Map.HasZoomEnabled;
-				map.UiSettings.ZoomGesturesEnabled = Map.HasZoomEnabled;
-				map.UiSettings.ScrollGesturesEnabled = Map.HasScrollEnabled;
-				map.MyLocationEnabled = map.UiSettings.MyLocationButtonEnabled = Map.IsShowingUser;
-				SetMapType();
-			}
+			Control.GetMapAsync(this);
 
 			MessagingCenter.Subscribe<Map, MapSpan>(this, MoveMessageName, OnMoveToRegionMessage, Map);
 
@@ -179,14 +179,51 @@ namespace Xamarin.Forms.Maps.Android
 
 			if (_init)
 			{
-				MoveToRegion(Element.LastMoveToRegion, false);
-				OnCollectionChanged(Element.Pins, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
-				_init = false;
+				if (NativeMap != null)
+				{
+					MoveToRegion(Element.LastMoveToRegion, false);
+					OnCollectionChanged(Element.Pins, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+					_init = false;
+				}
 			}
 			else if (changed)
 			{
-				UpdateVisibleRegion(NativeMap.CameraPosition.Target);
+				if (NativeMap != null)
+				{
+					UpdateVisibleRegion(NativeMap.CameraPosition.Target);
+				}
+
+				if(Element.MoveToLastRegionOnLayoutChange)
+					MoveToRegion(Element.LastMoveToRegion, false);
 			}
+		}
+
+		protected virtual void OnMapReady(GoogleMap map)
+		{
+			if (map == null)
+			{
+				return;
+			}
+
+			map.SetOnCameraMoveListener(this);
+			map.InfoWindowClick += MapOnMarkerClick;
+			map.MapClick += OnMapClick;
+
+			map.UiSettings.ZoomControlsEnabled = Map.HasZoomEnabled;
+			map.UiSettings.ZoomGesturesEnabled = Map.HasZoomEnabled;
+			map.UiSettings.ScrollGesturesEnabled = Map.HasScrollEnabled;
+			map.MyLocationEnabled = map.UiSettings.MyLocationButtonEnabled = Map.IsShowingUser;
+			SetMapType();
+		}
+
+		protected virtual MarkerOptions CreateMarker(Pin pin)
+		{
+			var opts = new MarkerOptions();
+			opts.SetPosition(new LatLng(pin.Position.Latitude, pin.Position.Longitude));
+			opts.SetTitle(pin.Label);
+			opts.SetSnippet(pin.Address);
+
+			return opts;
 		}
 
 		void AddPins(IList pins)
@@ -205,16 +242,44 @@ namespace Xamarin.Forms.Maps.Android
 			_markers.AddRange(pins.Cast<Pin>().Select(p =>
 			{
 				Pin pin = p;
-				var opts = new MarkerOptions();
-				opts.SetPosition(new LatLng(pin.Position.Latitude, pin.Position.Longitude));
-				opts.SetTitle(pin.Label);
-				opts.SetSnippet(pin.Address);
+				var opts = CreateMarker(pin);
 				var marker = map.AddMarker(opts);
 
+				pin.PropertyChanged += PinOnPropertyChanged;
+
 				// associate pin with marker for later lookup in event handlers
-				pin.Id = marker.Id;
+				pin.MarkerId = marker.Id;
 				return marker;
 			}));
+		}
+
+		void PinOnPropertyChanged(object sender, PropertyChangedEventArgs e)
+		{
+			Pin pin = (Pin)sender;
+			Marker marker = GetMarkerForPin(pin);
+
+			if (marker == null)
+			{
+				return;
+			}
+
+			if (e.PropertyName == Pin.LabelProperty.PropertyName)
+			{
+				marker.Title = pin.Label;
+			}
+			else if (e.PropertyName == Pin.AddressProperty.PropertyName)
+			{
+				marker.Snippet = pin.Address;
+			}
+			else if (e.PropertyName == Pin.PositionProperty.PropertyName)
+			{
+				marker.Position = new LatLng(pin.Position.Latitude, pin.Position.Longitude);
+			}
+		}
+
+		protected Marker GetMarkerForPin(Pin pin)
+		{
+			return _markers?.Find(m => m.Id == (string)pin.MarkerId);
 		}
 
 		void MapOnMarkerClick(object sender, GoogleMap.InfoWindowClickEventArgs eventArgs)
@@ -227,7 +292,7 @@ namespace Xamarin.Forms.Maps.Android
 			for (var i = 0; i < Map.Pins.Count; i++)
 			{
 				Pin pin = Map.Pins[i];
-				if ((string)pin.Id != marker.Id)
+				if ((string)pin.MarkerId != marker.Id)
 				{
 					continue;
 				}
@@ -236,9 +301,14 @@ namespace Xamarin.Forms.Maps.Android
 				break;
 			}
 
-			// only consider event handled if a handler is present. 
+			// only consider event handled if a handler is present.
 			// Else allow default behavior of displaying an info window.
 			targetPin?.SendTap();
+		}
+
+		void OnMapClick(object sender, GoogleMap.MapClickEventArgs e)
+		{
+			Map.SendMapClicked(new Position(e.Point.Latitude, e.Point.Longitude));
 		}
 
 		void MoveToRegion(MapSpan span, bool animate)
@@ -318,7 +388,9 @@ namespace Xamarin.Forms.Maps.Android
 
 			foreach (Pin p in pins)
 			{
-				var marker = _markers.FirstOrDefault(m => (object)m.Id == p.Id);
+				p.PropertyChanged -= PinOnPropertyChanged;
+				var marker = GetMarkerForPin(p);
+
 				if (marker == null)
 				{
 					continue;
@@ -368,7 +440,18 @@ namespace Xamarin.Forms.Maps.Android
 			LatLng lr = projection.FromScreenLocation(new global::Android.Graphics.Point(width, height));
 			double dlat = Math.Max(Math.Abs(ul.Latitude - lr.Latitude), Math.Abs(ur.Latitude - ll.Latitude));
 			double dlong = Math.Max(Math.Abs(ul.Longitude - lr.Longitude), Math.Abs(ur.Longitude - ll.Longitude));
-			Element.VisibleRegion = new MapSpan(new Position(pos.Latitude, pos.Longitude), dlat, dlong);
+			Element.SetVisibleRegion(new MapSpan(new Position(pos.Latitude, pos.Longitude), dlat, dlong));
+		}
+
+		void IOnMapReadyCallback.OnMapReady(GoogleMap map)
+		{
+			NativeMap = map;
+			OnMapReady(map);
+		}
+
+		void GoogleMap.IOnCameraMoveListener.OnCameraMove()
+		{
+			UpdateVisibleRegion(NativeMap.CameraPosition.Target);
 		}
 	}
 }

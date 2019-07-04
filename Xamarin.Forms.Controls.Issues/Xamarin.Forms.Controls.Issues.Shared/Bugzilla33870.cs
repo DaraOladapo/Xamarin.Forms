@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 using Xamarin.Forms.CustomAttributes;
 using Xamarin.Forms.Internals;
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 
 	[Preserve (AllMembers = true)]
@@ -44,7 +44,7 @@ namespace Xamarin.Forms.Controls
 			var listview = new ListView {
 				ItemsSource = source,
 				IsGroupingEnabled = true,
-				GroupDisplayBinding = Binding.Create<Section> (x => x.Title),
+				GroupDisplayBinding = new Binding ("Title"),
 			};
 
 			var label = new Label { Text = "Tap CLEAR SELECTION. If the app does not crash and no item is selected, the test has passed." };

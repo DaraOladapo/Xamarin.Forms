@@ -3,14 +3,13 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Android.Graphics;
 using AApplication = Android.App.Application;
+using Xamarin.Forms.Internals;
 
 namespace Xamarin.Forms.Platform.Android
 {
 	public static class FontExtensions
 	{
 		static readonly Dictionary<Tuple<string, FontAttributes>, Typeface> Typefaces = new Dictionary<Tuple<string, FontAttributes>, Typeface>();
-
-		static readonly Regex LoadFromAssets = new Regex(@"\w+\.((ttf)|(otf))\#\w*");
 
 		static Typeface s_defaultTypeface;
 
@@ -41,9 +40,26 @@ namespace Xamarin.Forms.Platform.Android
 			return (float)self.FontSize;
 		}
 
+		internal static Typeface ToTypeFace(this string fontfamily, FontAttributes attr = FontAttributes.None)
+		{
+			Typeface result;
+			
+			if (IsAssetFontFamily(fontfamily))
+			{
+				result = Typeface.CreateFromAsset(AApplication.Context.Assets, FontNameToFontFile(fontfamily));
+			}
+			else
+			{
+				var style = ToTypefaceStyle(attr);
+				result = Typeface.Create(fontfamily, style);
+			}
+
+			return result;
+		}
+
 		public static Typeface ToTypeface(this Font self)
 		{
-			if (self.IsDefault)
+			if (self.IsDefault || (self.FontAttributes == FontAttributes.None && string.IsNullOrEmpty(self.FontFamily)))
 				return s_defaultTypeface ?? (s_defaultTypeface = Typeface.Default);
 
 			var key = new Tuple<string, FontAttributes>(self.FontFamily, self.FontAttributes);
@@ -56,21 +72,22 @@ namespace Xamarin.Forms.Platform.Android
 				var style = ToTypefaceStyle(self.FontAttributes);
 				result = Typeface.Create(Typeface.Default, style);
 			}
-			else if (LoadFromAssets.IsMatch(self.FontFamily))
-			{
-				result = Typeface.CreateFromAsset(AApplication.Context.Assets, FontNameToFontFile(self.FontFamily));
-			}
 			else
 			{
-				var style = ToTypefaceStyle(self.FontAttributes);
-				result = Typeface.Create(self.FontFamily, style);
+				result = self.FontFamily.ToTypeFace(self.FontAttributes);
 			}
+
 			return (Typefaces[key] = result);
 		}
 
 		internal static bool IsDefault(this IFontElement self)
 		{
 			return self.FontFamily == null && self.FontSize == Device.GetNamedSize(NamedSize.Default, typeof(Label), true) && self.FontAttributes == FontAttributes.None;
+		}
+
+		static bool IsAssetFontFamily (string name)
+		{
+			return name.Contains(".ttf#") || name.Contains(".otf#");
 		}
 
 		internal static Typeface ToTypeface(this IFontElement self)
@@ -88,7 +105,7 @@ namespace Xamarin.Forms.Platform.Android
 				var style = ToTypefaceStyle(self.FontAttributes);
 				result = Typeface.Create(Typeface.Default, style);
 			}
-			else if (LoadFromAssets.IsMatch(self.FontFamily))
+			else if (IsAssetFontFamily(self.FontFamily))
 			{
 				result = Typeface.CreateFromAsset(AApplication.Context.Assets, FontNameToFontFile(self.FontFamily));
 			}

@@ -11,53 +11,34 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using CoreFoundation;
-using Foundation;
-using UIKit;
 using Xamarin.Forms.Internals;
+using Foundation;
+using Xamarin.Forms.PlatformConfiguration;
+using Xamarin.Forms.PlatformConfiguration.iOSSpecific;
+
+#if __MOBILE__
+using UIKit;
 using Xamarin.Forms.Platform.iOS;
+using TNativeView = UIKit.UIView;
+#else
+using AppKit;
+using Xamarin.Forms.Platform.MacOS;
+using TNativeView = AppKit.NSView;
+#endif
 
 namespace Xamarin.Forms
 {
 	public static class Forms
 	{
-		//Preserve GetCallingAssembly
-		static readonly bool nevertrue = false;
-
-		static bool? s_isiOS7OrNewer;
-
-		static bool? s_isiOS8OrNewer;
-
-		static bool? s_isiOS9OrNewer;
-
-		static Forms()
-		{
-			if (nevertrue)
-				Assembly.GetCallingAssembly();
-		}
-
 		public static bool IsInitialized { get; private set; }
 
-		internal static bool IsiOS7OrNewer
-		{
-			get
-			{
-				if (!s_isiOS7OrNewer.HasValue)
-					s_isiOS7OrNewer = UIDevice.CurrentDevice.CheckSystemVersion(7, 0);
-				return s_isiOS7OrNewer.Value;
-			}
-		}
+#if __MOBILE__
+		static bool? s_isiOS9OrNewer;
+		static bool? s_isiOS10OrNewer;
+		static bool? s_isiOS11OrNewer;
+#endif
 
-		internal static bool IsiOS8OrNewer
-		{
-			get
-			{
-				if (!s_isiOS8OrNewer.HasValue)
-					s_isiOS8OrNewer = UIDevice.CurrentDevice.CheckSystemVersion(8, 0);
-				return s_isiOS8OrNewer.Value;
-			}
-		}
-
+#if __MOBILE__
 		internal static bool IsiOS9OrNewer
 		{
 			get
@@ -68,33 +49,83 @@ namespace Xamarin.Forms
 			}
 		}
 
+
+		internal static bool IsiOS10OrNewer
+		{
+			get
+			{
+				if (!s_isiOS10OrNewer.HasValue)
+					s_isiOS10OrNewer = UIDevice.CurrentDevice.CheckSystemVersion(10, 0);
+				return s_isiOS10OrNewer.Value;
+			}
+		}
+
+		internal static bool IsiOS11OrNewer
+		{
+			get
+			{
+				if (!s_isiOS11OrNewer.HasValue)
+					s_isiOS11OrNewer = UIDevice.CurrentDevice.CheckSystemVersion(11, 0);
+				return s_isiOS11OrNewer.Value;
+			}
+		}
+#endif
+
+		static IReadOnlyList<string> s_flags;
+		public static IReadOnlyList<string> Flags => s_flags ?? (s_flags = new List<string>().AsReadOnly());
+
+		public static void SetFlags(params string[] flags)
+		{
+			if (IsInitialized)
+			{
+				throw new InvalidOperationException($"{nameof(SetFlags)} must be called before {nameof(Init)}");
+			}
+
+			s_flags = flags.ToList().AsReadOnly();
+		}
+
 		public static void Init()
 		{
 			if (IsInitialized)
 				return;
 			IsInitialized = true;
-			Color.Accent = Color.FromRgba(50, 79, 133, 255);
+			Color.SetAccent(Color.FromRgba(50, 79, 133, 255));
 
 			Log.Listeners.Add(new DelegateLogListener((c, m) => Trace.WriteLine(m, c)));
 
-			Device.OS = TargetPlatform.iOS;
+#if __MOBILE__
+			Device.SetIdiom(UIDevice.CurrentDevice.UserInterfaceIdiom == UIUserInterfaceIdiom.Pad ? TargetIdiom.Tablet : TargetIdiom.Phone);
+			Device.SetFlowDirection(UIApplication.SharedApplication.UserInterfaceLayoutDirection.ToFlowDirection());
+#else
+			Device.SetIdiom(TargetIdiom.Desktop);
+			Device.SetFlowDirection(NSApplication.SharedApplication.UserInterfaceLayoutDirection.ToFlowDirection());
+			var mojave = new NSOperatingSystemVersion(10, 14, 0);
+			if (NSProcessInfo.ProcessInfo.IsOperatingSystemAtLeastVersion(mojave) &&
+				typeof(NSApplication).GetProperty("Appearance") is PropertyInfo appearance &&
+				appearance != null)
+			{
+				var aquaAppearance = NSAppearance.GetAppearance(NSAppearance.NameAqua);
+				appearance.SetValue(NSApplication.SharedApplication, aquaAppearance);
+			}
+#endif
+			Device.SetFlags(s_flags);
 			Device.PlatformServices = new IOSPlatformServices();
+#if __MOBILE__
 			Device.Info = new IOSDeviceInfo();
+#else
+			Device.Info = new Platform.macOS.MacDeviceInfo();
+#endif
 
-			Registrar.RegisterAll(new[] { typeof(ExportRendererAttribute), typeof(ExportCellAttribute), typeof(ExportImageSourceHandlerAttribute) });
-
-			Device.Idiom = UIDevice.CurrentDevice.UserInterfaceIdiom == UIUserInterfaceIdiom.Pad ? TargetIdiom.Tablet : TargetIdiom.Phone;
-
+			Internals.Registrar.RegisterAll(new[]
+				{ typeof(ExportRendererAttribute), typeof(ExportCellAttribute), typeof(ExportImageSourceHandlerAttribute) });
 			ExpressionSearch.Default = new iOSExpressionSearch();
 		}
 
 		public static event EventHandler<ViewInitializedEventArgs> ViewInitialized;
 
-		internal static void SendViewInitialized(this VisualElement self, UIView nativeView)
+		internal static void SendViewInitialized(this VisualElement self, TNativeView nativeView)
 		{
-			var viewInitialized = ViewInitialized;
-			if (viewInitialized != null)
-				viewInitialized(self, new ViewInitializedEventArgs { View = self, NativeView = nativeView });
+			ViewInitialized?.Invoke(self, new ViewInitializedEventArgs { View = self, NativeView = nativeView });
 		}
 
 		class iOSExpressionSearch : ExpressionVisitor, IExpressionSearch
@@ -124,43 +155,19 @@ namespace Xamarin.Forms
 			}
 		}
 
-		internal class IOSDeviceInfo : DeviceInfo
-		{
-			readonly NSObject _notification;
-			readonly Size _scaledScreenSize;
-			readonly double _scalingFactor;
-
-			public IOSDeviceInfo()
-			{
-				_notification = UIDevice.Notifications.ObserveOrientationDidChange((sender, args) => CurrentOrientation = UIDevice.CurrentDevice.Orientation.ToDeviceOrientation());
-
-				_scalingFactor = UIScreen.MainScreen.Scale;
-				_scaledScreenSize = new Size(UIScreen.MainScreen.Bounds.Width, UIScreen.MainScreen.Bounds.Height);
-				PixelScreenSize = new Size(_scaledScreenSize.Width * _scalingFactor, _scaledScreenSize.Height * _scalingFactor);
-			}
-
-			public override Size PixelScreenSize { get; }
-
-			public override Size ScaledScreenSize
-			{
-				get { return _scaledScreenSize; }
-			}
-
-			public override double ScalingFactor
-			{
-				get { return _scalingFactor; }
-			}
-
-			protected override void Dispose(bool disposing)
-			{
-				_notification.Dispose();
-				base.Dispose(disposing);
-			}
-		}
-
 		class IOSPlatformServices : IPlatformServices
 		{
-			static readonly MD5CryptoServiceProvider Checksum = new MD5CryptoServiceProvider();
+			readonly double _fontScalingFactor = 1;
+			public IOSPlatformServices()
+			{
+#if __MOBILE__
+				//The standard accisibility size for a font is 18, we can get a
+				//close aproximation to the new Size by multiplying by this scale factor
+				_fontScalingFactor = (double)UIFont.PreferredBody.PointSize / 18f;
+#endif
+			}
+
+			static readonly MD5CryptoServiceProvider s_checksum = new MD5CryptoServiceProvider();
 
 			public void BeginInvokeOnMainThread(Action action)
 			{
@@ -179,7 +186,7 @@ namespace Xamarin.Forms
 
 			public string GetMD5Hash(string input)
 			{
-				var bytes = Checksum.ComputeHash(Encoding.UTF8.GetBytes(input));
+				var bytes = s_checksum.ComputeHash(Encoding.UTF8.GetBytes(input));
 				var ret = new char[32];
 				for (var i = 0; i < 16; i++)
 				{
@@ -193,18 +200,50 @@ namespace Xamarin.Forms
 			{
 				// We make these up anyway, so new sizes didn't really change
 				// iOS docs say default button font size is 15, default label font size is 17 so we use those as the defaults.
+				var scalingFactor = _fontScalingFactor;
+
+				if (Application.Current?.On<iOS>().GetEnableAccessibilityScalingForNamedFontSizes() == false)
+				{
+					scalingFactor = 1;
+				}
+
 				switch (size)
 				{
+					//We multiply the fonts by the scale factor, and cast to an int, to make them whole numbers.
 					case NamedSize.Default:
-						return typeof(Button).IsAssignableFrom(targetElementType) ? 15 : 17;
+						return (int)((typeof(Button).IsAssignableFrom(targetElementType) ? 15 : 17) * scalingFactor);
 					case NamedSize.Micro:
-						return 12;
+						return (int)(12 * scalingFactor);
 					case NamedSize.Small:
-						return 14;
+						return (int)(14 * scalingFactor);
 					case NamedSize.Medium:
-						return 17;
+						return (int)(17 * scalingFactor);
 					case NamedSize.Large:
-						return 22;
+						return (int)(22 * scalingFactor);
+#if __IOS__
+					case NamedSize.Body:
+						return (double)UIFont.PreferredBody.PointSize;
+					case NamedSize.Caption:
+						return (double)UIFont.PreferredCaption1.PointSize;
+					case NamedSize.Header:
+						return (double)UIFont.PreferredHeadline.PointSize;
+					case NamedSize.Subtitle:
+						return (double)UIFont.PreferredTitle2.PointSize;
+					case NamedSize.Title:
+						return (double)UIFont.PreferredTitle1.PointSize;
+#else
+					case NamedSize.Body:
+						return 23;
+					case NamedSize.Caption:
+						return 18;
+					case NamedSize.Header:
+						return 23;
+					case NamedSize.Subtitle:
+						return 28;
+					case NamedSize.Title:
+						return 34;
+
+#endif
 					default:
 						throw new ArgumentOutOfRangeException("size");
 				}
@@ -214,7 +253,14 @@ namespace Xamarin.Forms
 			{
 				using (var client = GetHttpClient())
 				using (var response = await client.GetAsync(uri, cancellationToken))
+				{
+					if (!response.IsSuccessStatusCode)
+					{
+						Log.Warning("HTTP Request", $"Could not retrieve {uri}, status code {response.StatusCode}");
+						return null;
+					}
 					return await response.Content.ReadAsStreamAsync();
+				}
 			}
 
 			public IIsolatedStorageFile GetUserStoreForApplication()
@@ -222,20 +268,32 @@ namespace Xamarin.Forms
 				return new _IsolatedStorageFile(IsolatedStorageFile.GetUserStoreForApplication());
 			}
 
-			public bool IsInvokeRequired
-			{
-				get { return !NSThread.IsMain; }
-			}
+			public bool IsInvokeRequired => !NSThread.IsMain;
+
+#if __MOBILE__
+			public string RuntimePlatform => Device.iOS;
+#else
+			public string RuntimePlatform => Device.macOS;
+#endif
 
 			public void OpenUriAction(Uri uri)
 			{
-				UIApplication.SharedApplication.OpenUrl(new NSUrl(uri.AbsoluteUri));
+				NSUrl url;
+
+				if (uri.Scheme == "tel" || uri.Scheme == "mailto")
+					url = new NSUrl(uri.AbsoluteUri);
+				else
+					url = NSUrl.FromString(uri.OriginalString) ?? new NSUrl(uri.Scheme, uri.Host, uri.PathAndQuery);
+#if __MOBILE__
+				UIApplication.SharedApplication.OpenUrl(url);
+#else
+				NSWorkspace.SharedWorkspace.OpenUrl(url);
+#endif
 			}
 
 			public void StartTimer(TimeSpan interval, Func<bool> callback)
 			{
-				NSTimer timer = null;
-				timer = NSTimer.CreateRepeatingScheduledTimer(interval, t =>
+				NSTimer timer = NSTimer.CreateRepeatingTimer(interval, t =>
 				{
 					if (!callback())
 						t.Invalidate();
@@ -245,11 +303,11 @@ namespace Xamarin.Forms
 
 			HttpClient GetHttpClient()
 			{
-				var proxy = CFNetwork.GetSystemProxySettings();
+				var proxy = CoreFoundation.CFNetwork.GetSystemProxySettings();
 				var handler = new HttpClientHandler();
 				if (!string.IsNullOrEmpty(proxy.HTTPProxy))
 				{
-					handler.Proxy = CFNetwork.GetDefaultProxy();
+					handler.Proxy = CoreFoundation.CFNetwork.GetDefaultProxy();
 					handler.UseProxy = true;
 				}
 				return new HttpClient(handler);
@@ -260,36 +318,6 @@ namespace Xamarin.Forms
 				if (v < 10)
 					return '0' + v;
 				return 'a' + v - 10;
-			}
-
-			public class _Timer : ITimer
-			{
-				readonly Timer _timer;
-
-				public _Timer(Timer timer)
-				{
-					_timer = timer;
-				}
-
-				public void Change(int dueTime, int period)
-				{
-					_timer.Change(dueTime, period);
-				}
-
-				public void Change(long dueTime, long period)
-				{
-					_timer.Change(dueTime, period);
-				}
-
-				public void Change(TimeSpan dueTime, TimeSpan period)
-				{
-					_timer.Change(dueTime, period);
-				}
-
-				public void Change(uint dueTime, uint period)
-				{
-					_timer.Change(dueTime, period);
-				}
 			}
 
 			public class _IsolatedStorageFile : IIsolatedStorageFile
@@ -324,15 +352,33 @@ namespace Xamarin.Forms
 
 				public Task<Stream> OpenFileAsync(string path, FileMode mode, FileAccess access)
 				{
-					Stream stream = _isolatedStorageFile.OpenFile(path, (System.IO.FileMode)mode, (System.IO.FileAccess)access);
+					Stream stream = _isolatedStorageFile.OpenFile(path, mode, access);
 					return Task.FromResult(stream);
 				}
 
 				public Task<Stream> OpenFileAsync(string path, FileMode mode, FileAccess access, FileShare share)
 				{
-					Stream stream = _isolatedStorageFile.OpenFile(path, (System.IO.FileMode)mode, (System.IO.FileAccess)access, (System.IO.FileShare)share);
+					Stream stream = _isolatedStorageFile.OpenFile(path, mode, access, share);
 					return Task.FromResult(stream);
 				}
+			}
+
+			public void QuitApplication()
+			{
+#if __MOBILE__
+				Log.Warning(nameof(IOSPlatformServices), "Platform doesn't implement QuitApp");
+#else
+				NSApplication.SharedApplication.Terminate(new NSObject());
+#endif
+			}
+
+			public SizeRequest GetNativeSize(VisualElement view, double widthConstraint, double heightConstraint)
+			{
+#if __MOBILE__
+				return Platform.iOS.Platform.GetNativeSize(view, widthConstraint, heightConstraint);
+#else
+				return Platform.MacOS.Platform.GetNativeSize(view, widthConstraint, heightConstraint);
+#endif
 			}
 		}
 	}

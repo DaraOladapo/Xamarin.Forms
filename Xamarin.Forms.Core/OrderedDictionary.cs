@@ -31,6 +31,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Xamarin.Forms;
+using Xamarin.Forms.Internals;
 
 namespace Cadenza.Collections
 {
@@ -78,9 +79,7 @@ namespace Cadenza.Collections
 		}
 
 		/// <summary>
-		///     Gets the equality comparer being used for
-		///     <typeparam name="TKey" />
-		///     .
+		///     Gets the equality comparer being used for <typeparamref name="TKey"/>.
 		/// </summary>
 		public IEqualityComparer<TKey> Comparer
 		{

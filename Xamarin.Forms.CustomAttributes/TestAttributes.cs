@@ -3,21 +3,21 @@ using System.Diagnostics;
 
 namespace Xamarin.Forms.CustomAttributes
 {
-	[Conditional ("DEBUG")]
-	[AttributeUsage (
+	[Conditional("DEBUG")]
+	[AttributeUsage(
 		AttributeTargets.Class |
-		AttributeTargets.Event | 
+		AttributeTargets.Event |
 		AttributeTargets.Property |
 		AttributeTargets.Method |
-		AttributeTargets.Delegate, 
+		AttributeTargets.Delegate,
 		AllowMultiple = true
 		)]
 	public class PlatformAttribute : Attribute
 	{
 		readonly string _platform;
-		public PlatformAttribute (object platform)
+		public PlatformAttribute(object platform)
 		{
-			_platform = platform.ToString ();
+			_platform = platform.ToString();
 		}
 
 		public string Platform => "Issue: " + _platform;
@@ -25,7 +25,7 @@ namespace Xamarin.Forms.CustomAttributes
 
 	public enum IssueTracker
 	{
-		Github, 
+		Github,
 		Bugzilla,
 		None
 	}
@@ -38,8 +38,8 @@ namespace Xamarin.Forms.CustomAttributes
 		Default
 	}
 
-	[Conditional ("DEBUG")]
-	[AttributeUsage (
+	[Conditional("DEBUG")]
+	[AttributeUsage(
 		AttributeTargets.Class |
 		AttributeTargets.Method,
 		AllowMultiple = true
@@ -48,45 +48,56 @@ namespace Xamarin.Forms.CustomAttributes
 	{
 		bool _modal;
 
-		public IssueAttribute (IssueTracker issueTracker, int issueNumber, string description, NavigationBehavior navigationBehavior = NavigationBehavior.Default)
+		public IssueAttribute(IssueTracker issueTracker, int issueNumber, string description,
+			NavigationBehavior navigationBehavior = NavigationBehavior.Default, int issueTestNumber = 0)
 		{
 			IssueTracker = issueTracker;
 			IssueNumber = issueNumber;
 			Description = description;
 			PlatformsAffected = PlatformAffected.Default;
 			NavigationBehavior = navigationBehavior;
+			IssueTestNumber = issueTestNumber;
 		}
 
-		public IssueAttribute (IssueTracker issueTracker, int issueNumber, string description, PlatformAffected platformsAffected, NavigationBehavior navigationBehavior = NavigationBehavior.Default)
+		public IssueAttribute(IssueTracker issueTracker, int issueNumber, string description,
+			PlatformAffected platformsAffected, NavigationBehavior navigationBehavior = NavigationBehavior.Default,
+			int issueTestNumber = 0)
 		{
 			IssueTracker = issueTracker;
 			IssueNumber = issueNumber;
 			Description = description;
 			PlatformsAffected = platformsAffected;
 			NavigationBehavior = navigationBehavior;
+			IssueTestNumber = issueTestNumber;
 		}
 
 		public IssueTracker IssueTracker { get; }
 
 		public int IssueNumber { get; }
 
+		public int IssueTestNumber { get; }
+
 		public string Description { get; }
 
 		public PlatformAffected PlatformsAffected { get; }
 
 		public NavigationBehavior NavigationBehavior { get; }
+
+		public string DisplayName => IssueTestNumber == 0
+			? $"{IssueTracker.ToString().Substring(0, 1)}{IssueNumber}"
+			: $"{IssueTracker.ToString().Substring(0, 1)}{IssueNumber} ({IssueTestNumber})";
 	}
 
-	[Conditional ("DEBUG")]
+	[Conditional("DEBUG")]
 	public class UiTestExemptAttribute : Attribute
 	{
 		// optional string reason
 		readonly string _exemptReason;
 		readonly string _description;
 
-		public UiTestExemptAttribute (ExemptReason exemptReason, string description = null)
+		public UiTestExemptAttribute(ExemptReason exemptReason, string description = null)
 		{
-			_exemptReason = Enum.GetName (typeof(ExemptReason), exemptReason);
+			_exemptReason = Enum.GetName(typeof(ExemptReason), exemptReason);
 			_description = description;
 		}
 
@@ -95,13 +106,13 @@ namespace Xamarin.Forms.CustomAttributes
 		public string Description => "Description: " + _description;
 	}
 
-	[Conditional ("DEBUG")]
+	[Conditional("DEBUG")]
 	public class UiTestFragileAttribute : Attribute
 	{
 		// optional string reason
 		readonly string _description;
 
-		public UiTestFragileAttribute (string description = null)
+		public UiTestFragileAttribute(string description = null)
 		{
 			_description = description;
 		}
@@ -109,17 +120,17 @@ namespace Xamarin.Forms.CustomAttributes
 		public string Description => "Description: " + _description;
 	}
 
-	[Conditional ("DEBUG")]
-	[AttributeUsage (AttributeTargets.All, AllowMultiple = true)]
+	[Conditional("DEBUG")]
+	[AttributeUsage(AttributeTargets.All, AllowMultiple = true)]
 	public class UiTestBrokenAttribute : Attribute
 	{
 		// optional string reason
 		readonly string _exemptReason;
 		readonly string _description;
 
-		public UiTestBrokenAttribute (BrokenReason exemptReason, string description = null)
+		public UiTestBrokenAttribute(BrokenReason exemptReason, string description = null)
 		{
-			_exemptReason = Enum.GetName (typeof(ExemptReason), exemptReason);
+			_exemptReason = Enum.GetName(typeof(ExemptReason), exemptReason);
 			_description = description;
 		}
 
@@ -135,6 +146,9 @@ namespace Xamarin.Forms.CustomAttributes
 		Android = 1 << 1,
 		WinPhone = 1 << 2,
 		WinRT = 1 << 3,
+		UWP = 1 << 4,
+		WPF = 1 << 5,
+		macOS = 1 << 6,
 		All = ~0,
 		Default = 0
 	}
@@ -150,7 +164,7 @@ namespace Xamarin.Forms.CustomAttributes
 		CannotTest
 	}
 
-	public enum BrokenReason 
+	public enum BrokenReason
 	{
 		UITestBug,
 		CalabashBug,
@@ -185,7 +199,8 @@ namespace Xamarin.Forms.CustomAttributes
 			ImageCell,
 			EntryCell,
 			Editor,
-			DatePicker
+			DatePicker,
+			CheckBox
 		}
 
 		public enum Layouts
@@ -214,6 +229,8 @@ namespace Xamarin.Forms.CustomAttributes
 			BorderColor,
 			BorderRadius,
 			Image,
+			Padding,
+			Pressed
 		}
 
 		public enum VisualElement
@@ -413,7 +430,10 @@ namespace Xamarin.Forms.CustomAttributes
 			IsGroupingEnabled,
 			GroupDisplayBinding,
 			GroupShortNameBinding,
-			ScrollTo
+			ScrollTo,
+			FastScroll,
+			RefreshControlColor,
+			ScrollBarVisibility
 		}
 
 		public enum TableView
@@ -422,6 +442,7 @@ namespace Xamarin.Forms.CustomAttributes
 			Intent,
 			RowHeight,
 			HasUnevenRows,
+			TableSection
 		}
 
 		public enum TableSectionBase
@@ -465,23 +486,30 @@ namespace Xamarin.Forms.CustomAttributes
 			MaximumDate,
 			Focus,
 			IsVisible,
-			TextColor
+			TextColor,
+			FontAttributes,
+			FontFamily,
+			FontSize
 		}
 
 		public enum InputView
 		{
 			Keyboard,
+			MaxLength,
 		}
 
 		public enum Editor
 		{
 			Completed,
 			TextChanged,
+			Placeholder,
 			Text,
 			TextColor,
 			FontAttributes,
 			FontFamily,
-			FontSize
+			FontSize,
+			MaxLength,
+			IsReadOnly
 		}
 
 		public enum Entry
@@ -492,7 +520,6 @@ namespace Xamarin.Forms.CustomAttributes
 			IsPassword,
 			Text,
 			TextColor,
-			Keyboard,
 			HorizontalTextAlignmentStart,
 			HorizontalTextAlignmentCenter,
 			HorizontalTextAlignmentEnd,
@@ -505,7 +532,10 @@ namespace Xamarin.Forms.CustomAttributes
 			PlaceholderColor,
 			TextDisabledColor,
 			PlaceholderDisabledColor,
-			PasswordColor
+			PasswordColor,
+			MaxLength,
+			IsReadOnly,
+			IsPasswordNumeric
 		}
 
 		public enum Frame
@@ -523,6 +553,24 @@ namespace Xamarin.Forms.CustomAttributes
 			AspectFill,
 			AspectFit,
 			Fill
+		}
+
+		public enum ImageButton
+		{
+			Source,
+			Aspect,
+			IsOpaque,
+			IsLoading,
+			AspectFill,
+			AspectFit,
+			Fill,
+			BorderColor,
+			CornerRadius,
+			BorderWidth,
+			Clicked,
+			Command,
+			Image,
+			Pressed
 		}
 
 		public enum ImageSource
@@ -560,6 +608,8 @@ namespace Xamarin.Forms.CustomAttributes
 			FormattedText,
 			FontAttibutesBold,
 			FontAttributesItalic,
+			TextDecorationUnderline,
+			TextDecorationStrike,
 			FontNamedSizeMicro,
 			FontNamedSizeSmall,
 			FontNamedSizeMedium,
@@ -576,9 +626,11 @@ namespace Xamarin.Forms.CustomAttributes
 			VerticalTextAlignmentStart,
 			VerticalTextAlignmentCenter,
 			VerticalTextAlignmentEnd,
+			MaxLines
 		}
 
-		public enum MasterDetailPage {
+		public enum MasterDetailPage
+		{
 			Master,
 			Detail,
 			IsGestureEnabled,
@@ -586,22 +638,27 @@ namespace Xamarin.Forms.CustomAttributes
 			MasterBehavior
 		}
 
-		public enum OpenGlView {
+		public enum OpenGlView
+		{
 			OnDisplay,
 			HasRenderLoop,
 			Display
 		}
 
-		public enum ProgressBar {
-			Progress
+		public enum ProgressBar
+		{
+			Progress,
+			ProgressColor
 		}
 
-		public enum RelativeLayout {
+		public enum RelativeLayout
+		{
 			Children,
 			SetBoundsConstraint
 		}
 
-		public enum ScrollView {
+		public enum ScrollView
+		{
 			ContentSize,
 			Orientation,
 			Content
@@ -628,51 +685,84 @@ namespace Xamarin.Forms.CustomAttributes
 			PlaceholderColor
 		}
 
-		public enum Slider {
+		public enum Slider
+		{
 			Minimum,
 			Maximum,
-			Value
+			Value,
+			MinimumTrackColor,
+			MaximumTrackColor,
+			ThumbColor,
+			ThumbImage,
+			DragStarted,
+			DragCompleted
 		}
 
-		public enum StackLayout {
+		public enum StackLayout
+		{
 			Orientation,
 			Spacing
 		}
 
-		public enum Stepper {
+		public enum Stepper
+		{
 			Maximum,
 			Minimum,
 			Value,
 			Increment
 		}
 
-		public enum Switch {
-			IsToggled
+		public enum Switch
+		{
+			IsToggled,
+			OnColor,
+			ThumbColor
 		}
 
-		public enum TimePicker {
+		public enum CheckBox
+		{
+			IsChecked,
+			CheckedColor,
+			UncheckedColor
+		}
+
+		public enum TimePicker
+		{
 			Format,
 			Time,
 			Focus,
-			TextColor
+			TextColor,
+			FontAttributes,
+			FontFamily,
+			FontSize
 		}
 
-		public enum WebView {
+		public enum WebView
+		{
 			UrlWebViewSource,
 			HtmlWebViewSource,
-			LoadHtml
+			LoadHtml,
+			MixedContentDisallowed,
+			MixedContentAllowed,
+			JavaScriptAlert,
+			EvaluateJavaScript,
+			EnableZoomControls,
+			DisplayZoomControls
 		}
 
-		public enum UrlWebViewSource {
+		public enum UrlWebViewSource
+		{
 			Url
 		}
 
-		public enum HtmlWebViewSource {
+		public enum HtmlWebViewSource
+		{
 			BaseUrl,
 			Html
 		}
 
-		public enum Grid {
+		public enum Grid
+		{
 			Children,
 			SetRow,
 			SetRowSpan,
@@ -684,39 +774,50 @@ namespace Xamarin.Forms.CustomAttributes
 			RowDefinitions
 		}
 
-		public enum ContentPage {
+		public enum ContentPage
+		{
 			Content
 		}
 
-		public enum Picker {
+		public enum Picker
+		{
 			Title,
+			TitleColor,
 			Items,
 			SelectedIndex,
 			Focus,
-			TextColor
+			TextColor,
+			FontAttributes,
+			FontFamily,
+			FontSize
 		}
 
-		public enum FileImageSource {
+		public enum FileImageSource
+		{
 			File,
 			Cancel
 		}
 
-		public enum StreamImageSource {
+		public enum StreamImageSource
+		{
 			Stream
 		}
 
-		public enum OnPlatform {
+		public enum OnPlatform
+		{
 			WinPhone,
 			Android,
 			iOS
 		}
 
-		public enum OnIdiom {
+		public enum OnIdiom
+		{
 			Phone,
 			Tablet
 		}
 
-		public enum Span {
+		public enum Span
+		{
 			Text,
 			ForeGroundColor,
 			BackgroundColor,
@@ -724,7 +825,8 @@ namespace Xamarin.Forms.CustomAttributes
 			PropertyChanged
 		}
 
-		public enum FormattedString {
+		public enum FormattedString
+		{
 			ToStringOverride,
 			Spans,
 			PropertyChanged
@@ -732,7 +834,8 @@ namespace Xamarin.Forms.CustomAttributes
 
 		public enum BoxView
 		{
-			Color
+			Color,
+			CornerRadius
 		}
 
 	}

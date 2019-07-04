@@ -5,6 +5,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using NUnit.Framework;
+using Xamarin.Forms.Internals;
 
 namespace Xamarin.Forms.Core.UnitTests
 {
@@ -55,7 +56,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void SimpleLayout ()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -75,10 +75,72 @@ namespace Xamarin.Forms.Core.UnitTests
 		}
 
 		[Test]
+		public void LayoutIsUpdatedWhenConstraintsChange()
+		{
+			var relativeLayout = new RelativeLayout
+			{
+				IsPlatformEnabled = true
+			};
+
+			var child = new View
+			{
+				IsPlatformEnabled = true
+			};
+
+			relativeLayout.Children.Add(child,
+								Constraint.Constant(30),
+								Constraint.Constant(20),
+								Constraint.RelativeToParent(parent => parent.Height / 2),
+								Constraint.RelativeToParent(parent => parent.Height / 4));
+
+			relativeLayout.Layout(new Rectangle(0, 0, 100, 100));
+
+			Assert.AreEqual(new Rectangle(30, 20, 50, 25), child.Bounds);
+
+			RelativeLayout.SetXConstraint(child, Constraint.Constant(40));
+
+			Assert.AreEqual(new Rectangle(40, 20, 50, 25), child.Bounds);
+
+			RelativeLayout.SetYConstraint(child, Constraint.Constant(10));
+
+			Assert.AreEqual(new Rectangle(40, 10, 50, 25), child.Bounds);
+
+			RelativeLayout.SetWidthConstraint(child, Constraint.RelativeToParent(parent => parent.Height / 4));
+
+			Assert.AreEqual(new Rectangle(40, 10, 25, 25), child.Bounds);
+
+			RelativeLayout.SetHeightConstraint(child, Constraint.RelativeToParent(parent => parent.Height / 2));
+
+			Assert.AreEqual(new Rectangle(40, 10, 25, 50), child.Bounds);
+		}
+
+		[Test]
+		//https://github.com/xamarin/Xamarin.Forms/issues/2169
+		public void BoundsUpdatedIfConstraintsChangedWhileNotParented()
+		{
+			var relativeLayout = new RelativeLayout {
+				IsPlatformEnabled = true
+			};
+
+			var child = new View {
+				IsPlatformEnabled = true
+			};
+
+			relativeLayout.Children.Add(child, Constraint.Constant(30), Constraint.Constant(20));
+			relativeLayout.Layout(new Rectangle(0, 0, 100, 100));
+			Assert.That(child.Bounds, Is.EqualTo(new Rectangle(30,20,100,20)));
+
+			relativeLayout.Children.Remove(child);
+			relativeLayout.Children.Add(child, Constraint.Constant(50), Constraint.Constant(40));
+			Assert.That(child.Bounds, Is.EqualTo(new Rectangle(50, 40, 100, 20)));
+
+
+		}
+
+		[Test]
 		public void SimpleExpressionLayout ()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -101,7 +163,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void SimpleBoundsSizing ()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -120,7 +181,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void UnconstrainedSize()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -141,7 +201,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void ViewRelativeLayout ()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -175,7 +234,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void ViewRelativeLayoutWithExpressions()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -209,7 +267,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void ViewRelativeToMultipleViews ()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -254,7 +311,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void ExpressionRelativeToMultipleViews()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -299,7 +355,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void ThreePassLayout ()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -355,7 +410,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void ThreePassLayoutWithExpressions()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -411,7 +465,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void ThrowsWithUnsolvableConstraints ()
 		{
 			var relativeLayout = new RelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 
@@ -442,7 +495,6 @@ namespace Xamarin.Forms.Core.UnitTests
 		public void ChildAddedBeforeLayoutChildrenAfterInitialLayout ()
 		{
 			var relativeLayout = new MockRelativeLayout {
-				Platform = new UnitPlatform (),
 				IsPlatformEnabled = true
 			};
 

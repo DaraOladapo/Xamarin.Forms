@@ -8,7 +8,7 @@ using Xamarin.UITest.Queries;
 #endif
 
 
-namespace Xamarin.Forms.Controls
+namespace Xamarin.Forms.Controls.Issues
 {
 	[Preserve (AllMembers=true)]
 	[Issue (IssueTracker.Github, 773, "Horizontal ScrollView locks after rotation", PlatformAffected.iOS)]
@@ -40,64 +40,6 @@ namespace Xamarin.Forms.Controls
 
 			RunningApp.SetOrientationPortrait ();
 		}
-
-		//[Test]
-		//[Issue (IssueTracker.Github, 773, "Horizontal ScrollView locks after rotation - can scroll after rotation", PlatformAffected.iOS)]
-		//[UiTest (typeof (ScrollView))]
-		//public void Issue773TestsScrollingBeforeAndAfterRotation ()
-		//{
-//			ScrollHorizontalForEnd ();
-//			App.WaitForElement (q => q.Marked ("I was clicked once!"));
-//			App.Screenshot ("Scrolling successful before rotation");
-//
-//			App.SetOrientationLandscape ();
-//			App.Tap (q => q.Marked ("Button 8"));
-//			App.WaitForElement (q => q.Marked ("I was clicked again!"));
-//			App.Screenshot ("Scrolling successful after rotation");
-//
-//			App.SetOrientationPortrait ();
-//			App.Screenshot ("Can scroll back to beginning");
-//
-//			ScrollHorizontalForBeginning ();
-//			App.Screenshot ("Can scroll back to beginning");
-//		}
-
-		//void ScrollHorizontalForEnd ()
-		//{
-		//	int count = 0;
-
-		//	AppRect screenBounds = App.ScreenBounds ();
-
-		//	float scrollXStart = (4 / 5.0f) * screenBounds.Width;
-		//	float scrollXEnd = screenBounds.Width / 5;
-		//	float scrollY = App.Query (q => q.Marked ("Button 1"))[0].Rect.CenterY;
-
-		//	while (count < 4) {
-		//		App.Pan (new Drag (screenBounds, scrollXStart, scrollY, scrollXEnd, scrollY, Drag.Direction.RightToLeft));
-		//		count++;
-		//	}
-
-		//	App.Tap (q => q.Button ("Button 8"));
-		//}
-
-		//void ScrollHorizontalForBeginning ()
-		//{
-		//	int count = 0;
-
-		//	AppRect screenBounds = App.ScreenBounds ();
-
-		//	float scrollXStart = screenBounds.Width / 5;
-		//	float scrollXEnd = (4 / 5.0f) * screenBounds.Width;
-		//	float scrollY = App.Query (q => q.Button ("Button 8"))[0].Rect.CenterY;
-
-		//	while (count < 4) {
-		//		App.Pan (new Drag (screenBounds, scrollXStart, scrollY, scrollXEnd, scrollY, Drag.Direction.LeftToRight));
-		//		count++;
-		//	}
-
-		//	App.Tap (q => q.Button ("Button 1"));
-
-		//}
 #endif
 	}
 
@@ -162,10 +104,10 @@ namespace Xamarin.Forms.Controls
 
 			layout.Children.Add (label);
 
-			layout.Children.Add (new ScrollView {
+			layout.Children.Add(new ScrollView {
 				BackgroundColor = Color.Aqua,
 				Orientation = ScrollOrientation.Horizontal,
-				HeightRequest = Device.OnPlatform (44, 44, 80),
+				HeightRequest = Device.RuntimePlatform == Device.UWP  ? 80 : 44,
 				Content = buttonStack
 			});
 

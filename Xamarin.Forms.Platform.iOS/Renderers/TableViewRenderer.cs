@@ -19,6 +19,7 @@ namespace Xamarin.Forms.Platform.iOS
 
 		public override void LayoutSubviews()
 		{
+			_insetTracker?.OnLayoutSubviews();
 			base.LayoutSubviews();
 
 			if (_previousFrame != Frame)
@@ -81,7 +82,7 @@ namespace Xamarin.Forms.Platform.iOS
 						var offset = Control.ContentOffset;
 						offset.Y += point.Y;
 						Control.SetContentOffset(offset, true);
-					});
+					}, this);
 				}
 
 				SetSource();
@@ -134,9 +135,8 @@ namespace Xamarin.Forms.Platform.iOS
 		void UpdateRowHeight()
 		{
 			var rowHeight = Element.RowHeight;
-			if (Element.HasUnevenRows && rowHeight == -1 && Forms.IsiOS7OrNewer) {
-				if (Forms.IsiOS8OrNewer)
-					Control.RowHeight = UITableView.AutomaticDimension;
+			if (Element.HasUnevenRows && rowHeight == -1) {
+				Control.RowHeight = UITableView.AutomaticDimension;
 			} else
 				Control.RowHeight = rowHeight <= 0 ? DefaultRowHeight : rowHeight;
 		}
@@ -147,8 +147,7 @@ namespace Xamarin.Forms.Platform.iOS
 			if (Element.HasUnevenRows && rowHeight == -1) {
 				Control.EstimatedRowHeight = DefaultRowHeight;
 			} else {
-				if (Forms.IsiOS7OrNewer)
-					Control.EstimatedRowHeight = 0;
+				Control.EstimatedRowHeight = 0;
 			}
 		}
 	}

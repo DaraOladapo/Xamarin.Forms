@@ -1,9 +1,11 @@
 ﻿using System;
+using System.ComponentModel;
 
 namespace Xamarin.Forms.Internals
 {
 	[AttributeUsage(AttributeTargets.All)]
-	public class PreserveAttribute : Attribute
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	public sealed class PreserveAttribute : Attribute
 	{
 		public bool AllMembers;
 		public bool Conditional;

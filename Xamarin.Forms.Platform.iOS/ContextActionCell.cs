@@ -24,6 +24,7 @@ namespace Xamarin.Forms.Platform.iOS
 		UIButton _moreButton;
 		UIScrollView _scroller;
 		UITableView _tableView;
+		bool _isDiposed;
 
 		static ContextActionsCell()
 		{
@@ -87,13 +88,11 @@ namespace Xamarin.Forms.Platform.iOS
 		{
 			base.LayoutSubviews();
 
-			if (_scroller == null || (_scroller != null && _scroller.Frame == Bounds))
+			// Leave room for 1px of play because the border is 1 or .5px and must be accounted for.
+			if (_scroller == null || (_scroller.Frame.Width == ContentView.Bounds.Width && Math.Abs(_scroller.Frame.Height - ContentView.Bounds.Height) < 1))
 				return;
 
 			Update(_tableView, _cell, ContentCell);
-
-			_scroller.Frame = Bounds;
-			ContentCell.Frame = Bounds;
 
 			if (ContentCell is ViewCellRenderer.ViewTableCell && ContentCell.Subviews.Length > 0 && Math.Abs(ContentCell.Subviews[0].Frame.Height - Bounds.Height) > 1)
 			{
@@ -116,11 +115,20 @@ namespace Xamarin.Forms.Platform.iOS
 		{
 			return ContentCell.SizeThatFits(size);
 		}
+		public override void RemoveFromSuperview()
+		{
+			base.RemoveFromSuperview();
+			//Some cells are removed  when using ScrollTo but Disposed is not called causing leaks
+			//ListviewRenderer disposes it's subviews but there's a chance these were removed already
+			//but the dispose logic wasn't called.
+			Dispose(true);
+		}
 
 		public void Update(UITableView tableView, Cell cell, UITableViewCell nativeCell)
 		{
-			var parentListView = cell.RealParent as IListViewController;
-			var recycling = parentListView != null && parentListView.CachingStrategy == ListViewCachingStrategy.RecycleElement;
+			var parentListView = cell.RealParent as ListView;
+			var recycling = parentListView != null && 
+				((parentListView.CachingStrategy & ListViewCachingStrategy.RecycleElement) != 0);
 			if (_cell != cell && recycling)
 			{
 				if (_cell != null)
@@ -129,8 +137,8 @@ namespace Xamarin.Forms.Platform.iOS
 				((INotifyCollectionChanged)cell.ContextActions).CollectionChanged += OnContextItemsChanged;
 			}
 
-			var height = Frame.Height;
-			var width = tableView.Frame.Width;
+			var height = Frame.Height + (parentListView != null && parentListView.SeparatorVisibility == SeparatorVisibility.None ? 0.5f : 0f);
+			var width = ContentView.Frame.Width;
 
 			nativeCell.Frame = new RectangleF(0, 0, width, height);
 			nativeCell.SetNeedsLayout();
@@ -172,9 +180,8 @@ namespace Xamarin.Forms.Platform.iOS
 				_scroller = new UIScrollView(new RectangleF(0, 0, width, height));
 				_scroller.ScrollsToTop = false;
 				_scroller.ShowsHorizontalScrollIndicator = false;
-
-				if (Forms.IsiOS8OrNewer)
-					_scroller.PreservesSuperviewLayoutMargins = true;
+				
+				_scroller.PreservesSuperviewLayoutMargins = true;
 
 				ContentView.AddSubview(_scroller);
 			}
@@ -254,14 +261,22 @@ namespace Xamarin.Forms.Platform.iOS
 				_scroller.SetContentOffset(new PointF(ScrollDelegate.ButtonsWidth, 0), false);
 			else
 				_scroller.SetContentOffset(new PointF(0, 0), false);
+
+			if (ContentCell != null)
+			{
+				SelectionStyle = ContentCell.SelectionStyle;
+			}
 		}
 
 		protected override void Dispose(bool disposing)
 		{
-			if (disposing)
+			if (disposing && !_isDiposed)
 			{
+				_isDiposed = true;
+
 				if (_scroller != null)
 				{
+					_scroller.Delegate = null;
 					_scroller.Dispose();
 					_scroller = null;
 				}
@@ -276,6 +291,11 @@ namespace Xamarin.Forms.Platform.iOS
 
 				for (var i = 0; i < _buttons.Count; i++)
 					_buttons[i].Dispose();
+
+				var handler = new PropertyChangedEventHandler(OnMenuItemPropertyChanged);
+
+				foreach (var item in _menuItems)
+					item.PropertyChanged -= handler;
 
 				_buttons.Clear();
 				_menuItems.Clear();
@@ -302,11 +322,6 @@ namespace Xamarin.Forms.Platform.iOS
 			}
 
 			var frame = _moreButton.Frame;
-			if (!Forms.IsiOS8OrNewer)
-			{
-				var container = _moreButton.Superview;
-				frame = new RectangleF(container.Frame.X, 0, frame.Width, frame.Height);
-			}
 
 			var x = frame.X - _scroller.ContentOffset.X;
 
@@ -328,8 +343,7 @@ namespace Xamarin.Forms.Platform.iOS
 					var action = UIAlertAction.Create(item.Text, UIAlertActionStyle.Default, a =>
 					{
 						_scroller.SetContentOffset(new PointF(0, 0), true);
-						MenuItem mi;
-						if (weakItem.TryGetTarget(out mi))
+						if (weakItem.TryGetTarget(out MenuItem mi))
 							((IMenuItemController)mi).Activate();
 					});
 					actionSheet.AddAction(action);
@@ -356,7 +370,7 @@ namespace Xamarin.Forms.Platform.iOS
 			{
 				var d = new MoreActionSheetDelegate { Scroller = _scroller, Items = new List<MenuItem>() };
 
-				var actionSheet = new UIActionSheet(null, d);
+				var actionSheet = new UIActionSheet(null, (IUIActionSheetDelegate)d);
 
 				for (var i = 0; i < _cell.ContextActions.Count; i++)
 				{
@@ -407,7 +421,7 @@ namespace Xamarin.Forms.Platform.iOS
 			button.SetTitle(item.Text, UIControlState.Normal);
 			button.TitleEdgeInsets = new UIEdgeInsets(0, 15, 0, 15);
 
-			button.Enabled = ((IMenuItemController)item).IsEnabled;
+			button.Enabled = item.IsEnabled;
 
 			return button;
 		}
@@ -456,8 +470,9 @@ namespace Xamarin.Forms.Platform.iOS
 		{
 			if (e.PropertyName == "HasContextActions")
 			{
-				var parentListView = _cell.RealParent as IListViewController;
-				var recycling = parentListView != null && parentListView.CachingStrategy == ListViewCachingStrategy.RecycleElement;
+				var parentListView = _cell.RealParent as ListView;
+				var recycling = parentListView != null && 
+					((parentListView.CachingStrategy & ListViewCachingStrategy.RecycleElement) != 0);
 				if (!recycling)
 					ReloadRow();
 			}
@@ -465,8 +480,9 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void OnContextItemsChanged(object sender, NotifyCollectionChangedEventArgs e)
 		{
-			var parentListView = _cell.RealParent as IListViewController;
-			var recycling = parentListView != null && parentListView.CachingStrategy == ListViewCachingStrategy.RecycleElement;
+			var parentListView = _cell.RealParent as ListView;
+			var recycling = parentListView != null && 
+				((parentListView.CachingStrategy & ListViewCachingStrategy.RecycleElement) != 0);
 			if (recycling)
 				Update(_tableView, _cell, ContentCell);
 			else
@@ -476,8 +492,9 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void OnMenuItemPropertyChanged(object sender, PropertyChangedEventArgs e)
 		{
-			var parentListView = _cell.RealParent as IListViewController;
-			var recycling = parentListView != null && parentListView.CachingStrategy == ListViewCachingStrategy.RecycleElement;
+			var parentListView = _cell.RealParent as ListView;
+			var recycling = parentListView != null && 
+				((parentListView.CachingStrategy & ListViewCachingStrategy.RecycleElement) != 0);
 			if (recycling)
 				Update(_tableView, _cell, ContentCell);
 			else
@@ -624,8 +641,11 @@ namespace Xamarin.Forms.Platform.iOS
 			return null;
 		}
 
-		void SetupSelection(UITableView table)
+		static void SetupSelection(UITableView table)
 		{
+			if (table.GestureRecognizers == null)
+				return;
+
 			for (var i = 0; i < table.GestureRecognizers.Length; i++)
 			{
 				var r = table.GestureRecognizers[i] as SelectGestureRecognizer;
@@ -633,7 +653,7 @@ namespace Xamarin.Forms.Platform.iOS
 					return;
 			}
 
-			_tableView.AddGestureRecognizer(new SelectGestureRecognizer());
+			table.AddGestureRecognizer(new SelectGestureRecognizer());
 		}
 
 		class SelectGestureRecognizer : UITapGestureRecognizer
@@ -661,8 +681,10 @@ namespace Xamarin.Forms.Platform.iOS
 			{
 				var selector = (SelectGestureRecognizer)recognizer;
 
-				var table = (UITableView)recognizer.View;
+				if (selector._lastPath == null)
+					return;
 
+				var table = (UITableView)recognizer.View;
 				if (!selector._lastPath.Equals(table.IndexPathForSelectedRow))
 					table.SelectRow(selector._lastPath, false, UITableViewScrollPosition.None);
 				table.Source.RowSelected(table, selector._lastPath);
